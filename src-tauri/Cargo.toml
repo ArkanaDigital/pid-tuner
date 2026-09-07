@@ -1,0 +1,29 @@
+[package]
+name = "pid-tuner"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Guided blackbox PID/filter tuning for Betaflight and ArduPilot"
+
+[lib]
+name = "pid_tuner_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+domain = { workspace = true }
+bbl-ingest = { workspace = true }
+analysis = { workspace = true }
+recommend = { workspace = true }
+session = { workspace = true }
+fc-msp = { workspace = true }
+uuid = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+dsp = { workspace = true }

@@ -1,0 +1,56 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/domain",
+  "crates/dsp",
+  "crates/bbl-ingest",
+  "crates/analysis",
+  "crates/recommend",
+  "crates/session",
+  "crates/fc-msp",
+  "crates/cli",
+  "src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/arkana/pid-tuner"
+
+[workspace.dependencies]
+domain = { path = "crates/domain" }
+dsp = { path = "crates/dsp" }
+bbl-ingest = { path = "crates/bbl-ingest" }
+analysis = { path = "crates/analysis" }
+recommend = { path = "crates/recommend" }
+session = { path = "crates/session" }
+fc-msp = { path = "crates/fc-msp" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+realfft = "3.5"
+rustfft = "6"
+num-complex = "0.4"
+rayon = "1.10"
+blake3 = "1"
+blackbox-log = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+approx = "0.5"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[profile.dev.package."*"]
+opt-level = 2
+
+# Vendored (MIT OR Apache-2.0) with the Betaflight version gate relaxed so
+# 4.6 / 2025.12 logs parse. See vendor/blackbox-log/PATCHES.md.
+[patch.crates-io]
+blackbox-log = { path = "vendor/blackbox-log" }

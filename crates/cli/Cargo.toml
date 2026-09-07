@@ -1,0 +1,18 @@
+[package]
+name = "pidtool"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "pidtool"
+path = "src/main.rs"
+
+[dependencies]
+domain = { workspace = true }
+dsp = { workspace = true }
+bbl-ingest = { workspace = true }
+analysis = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+serde_json = { workspace = true }

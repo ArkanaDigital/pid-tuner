@@ -1,0 +1,16 @@
+/target
+/ui/node_modules
+/ui/dist
+/src-tauri/target
+/src-tauri/gen/schemas
+*.log
+.DS_Store
+/fixtures/**/*.golden.tmp.json
+/dist
+/node_modules
+# sample logs are large; see fixtures/SOURCES.md for download links
+/fixtures/bf/*
+/fixtures/ap/*
+!/fixtures/bf/.gitkeep
+!/fixtures/ap/.gitkeep
+/target-win
