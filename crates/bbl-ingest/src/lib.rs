@@ -5,6 +5,7 @@
 //! resampling to a uniform grid, and extraction of the tune from the header.
 
 pub mod headers;
+pub mod rates;
 pub mod tune;
 
 use blackbox_log::frame::{Frame as _, FrameDef as _, MainValue};
@@ -91,7 +92,7 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
         .map_err(|e| IngestError::Header(e.to_string()))?;
     let session_count = file.log_count();
 
-    let raw_headers = headers::raw_headers(bytes, session);
+    let mut raw_headers = headers::raw_headers(bytes, session);
     let high_res = raw_headers.get("blackbox_high_resolution").map(|v| v == "1").unwrap_or(false);
     let hr_scale = if high_res { 0.1 } else { 1.0 };
     let debug_mode = hdr.debug_mode().as_name().to_string();
@@ -117,8 +118,10 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
     if !cols.contains_key("gyroADC[0]") {
         return Err(IngestError::MissingField("gyroADC"));
     }
-    if !cols.contains_key("setpoint[0]") {
-        return Err(IngestError::MissingField("setpoint"));
+    // setpoint may be disabled in the blackbox field mask; it is rebuilt from rcCommand below.
+    let setpoint_logged = cols.contains_key("setpoint[0]");
+    if !setpoint_logged && !cols.contains_key("rcCommand[0]") {
+        return Err(IngestError::MissingField("setpoint (and rcCommand)"));
     }
 
     // ---- decode -------------------------------------------------------------
@@ -169,9 +172,40 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
         Some([rs(&format!("{base}[0]"))?, rs(&format!("{base}[1]"))?, rs(&format!("{base}[2]"))?])
     };
 
-    let setpoint = rs3("setpoint").ok_or(IngestError::MissingField("setpoint"))?;
     let gyro_filt = rs3("gyroADC").ok_or(IngestError::MissingField("gyroADC"))?;
     let mut warnings = Vec::new();
+    let mut extra_headers: Vec<(String, String)> = Vec::new();
+    let setpoint: [Vec<f32>; 3] = match rs3("setpoint") {
+        Some(sp) => sp,
+        None => {
+            let rc = rs3("rcCommand").ok_or(IngestError::MissingField("setpoint"))?;
+            let prof = rates::RatesProfile::from_headers(&raw_headers);
+            match prof {
+                Some(pr) if pr.supported() => {
+                    warnings.push(format!(
+                        "setpoint is not logged (blackbox_disable_setpoint = ON, fields_disabled_mask bit 2): rebuilt from rcCommand with the {} rates (rc_rates {:?}, rates {:?}, expo {:?}) without RC smoothing — step-response latency reads a few ms high. Enable the Setpoint field in Blackbox for exact results.",
+                        pr.type_name(), pr.rc_rates, pr.rates, pr.rc_expo
+                    ));
+                    extra_headers.push(("bf.setpoint_reconstructed".into(), pr.type_name().to_string()));
+                    let mut out: [Vec<f32>; 3] = Default::default();
+                    for k in 0..3 {
+                        out[k] = rc[k].iter().map(|&v| pr.setpoint(k, v)).collect();
+                    }
+                    out
+                }
+                Some(pr) => {
+                    warnings.push(format!("setpoint is not logged and the {} rates type is not modelled: no step response possible. Enable the Setpoint field in Blackbox (set blackbox_disable_setpoint = OFF).", pr.type_name()));
+                    let z = vec![0.0f32; grid.len()];
+                    [z.clone(), z.clone(), z]
+                }
+                None => {
+                    warnings.push("setpoint is not logged and the rates headers are missing: no step response possible. Enable the Setpoint field in Blackbox.".into());
+                    let z = vec![0.0f32; grid.len()];
+                    [z.clone(), z.clone(), z]
+                }
+            }
+        }
+    };
     let gyro_raw = match rs3("gyroUnfilt") {
         Some(g) => Some(g),
         None if debug_mode == "GYRO_SCALED" => rs3("debug"),
@@ -271,7 +305,7 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
             duration_s: t_end - t0,
             session_index: session,
             session_count,
-            headers: raw_headers,
+            headers: { raw_headers.extend(extra_headers); raw_headers },
             warnings,
             msg_rates_hz: Default::default(),
         },

@@ -126,6 +126,10 @@ fn fc_disarmed(c: &GuardCtx) -> GuardOutcome {
 fn log_rate_ok(c: &GuardCtx) -> GuardOutcome {
     let Some(f) = c.fc.filter(|f| f.connected) else { return action("Not connected.") };
     match (&f.firmware, f.log_rate_hz) {
+        (Some(Firmware::Betaflight { .. }), Some(_)) if f.pid_logging_enabled == Some(false) => fail(
+            "The blackbox field mask switches off PID, Setpoint or Gyro fields (blackbox_disable_*), so the log would be unusable.",
+            Some("Preflight fix clears blackbox_disable_pids / _setpoint / _gyro / _gyrounfilt / _motors / _rc (fields_disabled_mask, blackbox_fielddefs.h)."),
+        ),
         (Some(Firmware::Betaflight { .. }), Some(r)) if r >= 1900.0 => pass(),
         (Some(Firmware::Betaflight { .. }), Some(r)) => fail(
             format!("Blackbox rate is {r:.0} Hz; need ≥ 2 kHz for a 1 kHz spectrum."),
@@ -247,13 +251,23 @@ fn steps_guard(r: &FlightRecord) -> GuardOutcome {
             problems.push(why);
         }
     }
+    let reconstructed = r.warnings.iter().any(|w| w.contains("setpoint is not logged"));
     if problems.is_empty() {
+        if reconstructed {
+            // usable, but the pilot should log the real setpoint next time
+            return fail(
+                "setpoint was not logged (blackbox_disable_setpoint = ON); the step response uses a setpoint rebuilt from rcCommand without RC smoothing, so latency reads a few ms high.",
+                Some("Enable the Setpoint field in Betaflight Blackbox (CLI: set blackbox_disable_setpoint = OFF, save) and re-fly, or override to continue with the rebuilt setpoint."),
+            );
+        }
         pass()
     } else {
-        fail(
-            problems.join("; "),
-            Some("Do sharp, isolated stick snaps on ONE axis at a time (roll ×10, pitch ×10, yaw ×5), each held ~½ s. Below ~30 segments the averaged curve is still noisy."),
-        )
+        let hint = if reconstructed {
+            "Setpoint is not logged (blackbox_disable_setpoint = ON) — enable the Setpoint field in Blackbox, then do sharp, isolated stick snaps on ONE axis at a time (roll ×10, pitch ×10, yaw ×5), each held ~½ s."
+        } else {
+            "Do sharp, isolated stick snaps on ONE axis at a time (roll ×10, pitch ×10, yaw ×5), each held ~½ s. Below ~30 segments the averaged curve is still noisy."
+        };
+        fail(problems.join("; "), Some(hint))
     }
 }
 

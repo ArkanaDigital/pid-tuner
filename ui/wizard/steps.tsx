@@ -164,6 +164,7 @@ function ImportStep({ snap, which }: { snap: SessionSnapshot; which: Flight }) {
       <p>
         Betaflight: pull the .BBL/.BFL from the flash or SD card (Configurator → Blackbox → Save flash to file).
         ArduPilot: copy the .BIN from the SD card (fastest) or download it over MAVLink below. Or use the file the pilot sent you.
+        Betaflight 2025+ can switch off blackbox fields — keep <b>Setpoint</b>, PID, Gyro and Motors enabled (Blackbox tab → fields, or CLI <code>set blackbox_disable_setpoint = OFF</code>); without Setpoint the app rebuilds it from rcCommand and says so.
       </p>
       {snap.session.mode === "online" && <DownloadFromFlash which={which} />}
       <div className="row">

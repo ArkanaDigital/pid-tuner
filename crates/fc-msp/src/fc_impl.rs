@@ -9,6 +9,19 @@ use domain::*;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
+/// `fields_disabled_mask` bits — betaflight `src/main/blackbox/blackbox_fielddefs.h`
+/// `flightLogFieldSelect_e` (CLI `blackbox_disable_*`, settings.c).
+pub mod field_select {
+    pub const PID: u32 = 1 << 0;
+    pub const RC_COMMANDS: u32 = 1 << 1;
+    pub const SETPOINT: u32 = 1 << 2;
+    pub const GYRO: u32 = 1 << 7;
+    pub const MOTOR: u32 = 1 << 11;
+    pub const GYROUNFILT: u32 = 1 << 14;
+    /// Everything the analysis needs.
+    pub const REQUIRED: u32 = PID | RC_COMMANDS | SETPOINT | GYRO | MOTOR | GYROUNFILT;
+}
+
 impl From<MspError> for FcError {
     fn from(e: MspError) -> Self {
         match e {
@@ -29,8 +42,11 @@ impl MspClient {
         let api = self.api();
         let log_rate = self.blackbox_rate_hz()?;
         let debug_mode = tune.get_raw("debug_mode").and_then(|v| v.parse::<u8>().ok());
+        let disabled = self.read_blackbox()?.and_then(|b| b.disabled_mask).unwrap_or(0);
         // gyroUnfilt is logged natively from BF 4.4 (API 1.45); older builds need debug_mode 6 = GYRO_SCALED.
-        let raw_ok = api.at_least(1, 45) || debug_mode == Some(6);
+        let raw_ok = (api.at_least(1, 45) && disabled & field_select::GYROUNFILT == 0) || debug_mode == Some(6);
+        // PID, setpoint and gyro fields must not be switched off in the blackbox field mask.
+        let fields_ok = disabled & (field_select::PID | field_select::SETPOINT | field_select::GYRO) == 0;
         let storage = match self.dataflash_summary() {
             Ok(d) if d.supported => Some(d.total_size.saturating_sub(d.used_size) as u64),
             _ => self.sdcard_summary()?.filter(|s| s.supported).map(|s| s.free_kb as u64 * 1024),
@@ -47,9 +63,10 @@ impl MspClient {
                 log_rate_hz: log_rate,
                 debug_mode: debug_mode.map(|d| if d == 6 { "GYRO_SCALED".to_string() } else { d.to_string() }),
                 storage_free_bytes: storage,
-                pid_logging_enabled: Some(true),
+                pid_logging_enabled: Some(fields_ok),
                 raw_gyro_logging_enabled: Some(raw_ok),
                 snapshot_taken: false,
+                log_bitmask: Some(disabled),
                 ..Default::default()
             },
             tune,
@@ -81,6 +98,13 @@ impl MspClient {
             if bb.device == 0 {
                 bb.device = 1; // flash
             }
+            // Re-enable PID / rcCommand / setpoint / gyro / motor / gyroUnfilt fields if the mask disables them.
+            if let Some(m) = bb.disabled_mask {
+                if m & field_select::REQUIRED != 0 {
+                    bb.disabled_mask = Some(m & !field_select::REQUIRED);
+                    outcomes.push(ApplyOutcome { param: "blackbox_disable_setpoint/pids/gyro/…".into(), wanted: format!("mask {}", m & !field_select::REQUIRED), read_back: None, ok: true, via: "msp".into() });
+                }
+            }
             if bb != before {
                 self.write_blackbox(&bb)?;
                 outcomes.push(ApplyOutcome { param: "blackbox_sample_rate".into(), wanted: format!("{}", bb.sample_rate), read_back: None, ok: true, via: "msp".into() });
@@ -100,8 +124,13 @@ impl MspClient {
             // read back
             let rate = self.blackbox_rate_hz()?.unwrap_or(0.0);
             let dbg = self.read_advanced_config()?.map(|a| a.debug_mode);
+            let mask = self.read_blackbox()?.and_then(|b| b.disabled_mask).unwrap_or(0);
             for o in outcomes.iter_mut() {
                 match o.param.as_str() {
+                    p if p.starts_with("blackbox_disable_") => {
+                        o.read_back = Some(format!("mask {mask}"));
+                        o.ok = mask & field_select::REQUIRED == 0;
+                    }
                     "blackbox_sample_rate" => {
                         o.read_back = Some(format!("{rate:.0} Hz"));
                         o.ok = rate >= 1990.0;
