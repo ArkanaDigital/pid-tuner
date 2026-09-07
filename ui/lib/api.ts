@@ -1,13 +1,22 @@
 import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
-import type { AnalysisBundle, ApplyPhase, FcApplyResult, FcStatus, Flight, ImportResult, LogSummary, Mode, ParamValue, PortInfo, Recommendation, SessionInfo, SessionSnapshot, SessionSummary, Step } from "./types";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import type { AnalysisBundle, ApplyPhase, ConnectKind, FcApplyResult, FcLogEntry, FcStatus, Flight, ImportResult, LogSummary, Mode, ParamValue, PidStrategy, PortInfo, Recommendation, SessionInfo, SessionSnapshot, SessionSummary, Step } from "./types";
 
 export async function pickLogFile(): Promise<string | null> {
   const r = await open({
     multiple: false,
-    filters: [{ name: "Blackbox logs", extensions: ["bbl", "bfl", "txt", "BBL", "BFL", "TXT", "bin", "BIN"] }],
+    filters: [{ name: "Blackbox / DataFlash logs", extensions: ["bbl", "bfl", "txt", "BBL", "BFL", "TXT", "bin", "BIN"] }],
   });
   return typeof r === "string" ? r : null;
+}
+
+/** Save dialog + write; returns the path or null when cancelled. */
+export async function saveTextAs(defaultName: string, text: string): Promise<string | null> {
+  const ext = defaultName.split(".").pop() ?? "txt";
+  const path = await save({ defaultPath: defaultName, filters: [{ name: ext.toUpperCase(), extensions: [ext] }] });
+  if (!path) return null;
+  await invoke<void>("save_text_file", { path, text });
+  return path;
 }
 
 export const api = {
@@ -41,13 +50,16 @@ export const api = {
     invoke<SessionSnapshot>("apply_confirm", { phase, method, notes: notes ?? null }),
   fcStatus: () => invoke<FcStatus>("fc_status"),
   fcPorts: () => invoke<PortInfo[]>("fc_ports"),
-  fcConnect: (port: string) => invoke<FcStatus>("fc_connect", { port }),
+  fcConnect: (port: string, kind: ConnectKind = "auto") => invoke<FcStatus>("fc_connect", { port, kind }),
   fcDisconnect: () => invoke<FcStatus>("fc_disconnect"),
   fcPoll: () => invoke<FcStatus>("fc_poll"),
   fcRefresh: () => invoke<FcStatus>("fc_refresh"),
   fcBackupCli: () => invoke<FcStatus>("fc_backup_cli"),
   fcPreflightFix: () => invoke<FcStatus>("fc_preflight_fix"),
-  fcDownloadImport: (which: Flight) => invoke<ImportResult>("fc_download_import", { which }),
+  fcListLogs: () => invoke<FcLogEntry[]>("fc_list_logs"),
+  fcDownloadImport: (which: Flight, logId?: number) => invoke<ImportResult>("fc_download_import", { which, logId: logId ?? null }),
+  fcExportText: (phase: ApplyPhase) => invoke<string>("fc_export_text", { phase }),
+  pidStrategy: (strategy: PidStrategy) => invoke<SessionSnapshot>("wizard_pid_strategy", { strategy }),
   fcApply: (phase: ApplyPhase) => invoke<FcApplyResult>("fc_apply", { phase }),
   reportExport: (images: { title: string; data_url: string }[]) => invoke<string>("report_export", { images }),
 };

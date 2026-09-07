@@ -111,6 +111,16 @@ pub enum Mode {
     Offline,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PidStrategy {
+    /// Our step-response heuristics (both firmwares).
+    #[default]
+    Heuristic,
+    /// ArduPilot: the pilot flies AUTOTUNE; we verify the result before/after.
+    Autotune,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ApplyPhase {
@@ -189,6 +199,8 @@ pub struct Session {
     pub firmware: Option<Firmware>,
     pub notes: String,
     pub report_file: Option<String>,
+    #[serde(default)]
+    pub pid_strategy: PidStrategy,
 }
 
 impl Session {
@@ -227,6 +239,7 @@ impl Session {
             firmware: None,
             notes: String::new(),
             report_file: None,
+            pid_strategy: PidStrategy::default(),
         }
     }
 

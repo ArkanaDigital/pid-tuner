@@ -4,16 +4,19 @@ members = [
   "crates/domain",
   "crates/dsp",
   "crates/bbl-ingest",
+  "crates/ap-ingest",
+  "crates/log-ingest",
   "crates/analysis",
   "crates/recommend",
   "crates/session",
   "crates/fc-msp",
+    "crates/fc-mavlink",
   "crates/cli",
   "src-tauri",
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/arkana/pid-tuner"
@@ -22,10 +25,13 @@ repository = "https://github.com/arkana/pid-tuner"
 domain = { path = "crates/domain" }
 dsp = { path = "crates/dsp" }
 bbl-ingest = { path = "crates/bbl-ingest" }
+ap-ingest = { path = "crates/ap-ingest" }
+log-ingest = { path = "crates/log-ingest" }
 analysis = { path = "crates/analysis" }
 recommend = { path = "crates/recommend" }
 session = { path = "crates/session" }
 fc-msp = { path = "crates/fc-msp" }
+fc-mavlink = { path = "crates/fc-mavlink" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

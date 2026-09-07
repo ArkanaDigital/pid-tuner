@@ -1,24 +1,50 @@
-//! Online mode: flight-controller commands backed by `fc-msp`.
+//! Online mode: flight-controller commands over a `Box<dyn FlightController>`
+//! (Betaflight MSP or ArduPilot MAVLink).
 
 use crate::wizard::{ImportResult, ReportImage};
 use crate::AppState;
+use domain::fc::{ApplyResult, FcError, FcKind, FlightController, PreflightFix};
 use domain::*;
-use fc_msp::layouts::ApiVersion;
-use fc_msp::{ApplyResult, MspClient, PortInfo};
-use serde::Serialize;
+use fc_msp::{MspClient, PortInfo};
+use serde::{Deserialize, Serialize};
 use session::*;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 
 type R<T> = std::result::Result<T, String>;
+pub type Client = Box<dyn FlightController>;
 
-fn with_client<T>(state: &State<'_, AppState>, f: impl FnOnce(&mut MspClient) -> std::result::Result<T, fc_msp::MspError>) -> R<T> {
-    let mut g = state.client.lock().unwrap();
-    let c = g.as_mut().ok_or_else(|| "flight controller not connected".to_string())?;
-    f(c).map_err(|e| e.to_string())
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectKind {
+    #[default]
+    Auto,
+    Msp,
+    Mavlink,
 }
 
-/// Refresh the shared FcStatus from the live FC.
+fn with_client<T>(state: &State<'_, AppState>, f: impl FnOnce(&mut dyn FlightController) -> std::result::Result<T, FcError>) -> R<T> {
+    let mut g = state.client.lock().unwrap();
+    let c = g.as_mut().ok_or_else(|| "flight controller not connected".to_string())?;
+    f(c.as_mut()).map_err(|e| e.to_string())
+}
+
+/// Take the client out of the state for a blocking operation, then put it back.
+async fn with_client_blocking<T: Send + 'static>(state: &State<'_, AppState>, f: impl FnOnce(&mut dyn FlightController) -> std::result::Result<T, FcError> + Send + 'static) -> R<T> {
+    let mut client = state.client.lock().unwrap().take().ok_or("not connected")?;
+    let (client, r) = tauri::async_runtime::spawn_blocking(move || {
+        let r = f(client.as_mut());
+        (client, r)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    *state.client.lock().unwrap() = Some(client);
+    r.map_err(|e| e.to_string())
+}
+
+/// Refresh the shared FcStatus from the live FC (cheap poll).
 fn refresh_status(state: &State<'_, AppState>) -> R<FcStatus> {
     let mut g = state.client.lock().unwrap();
     let Some(c) = g.as_mut() else {
@@ -27,11 +53,14 @@ fn refresh_status(state: &State<'_, AppState>) -> R<FcStatus> {
         return Ok(s);
     };
     let mut st = state.fc.lock().unwrap().clone();
-    match c.status() {
+    match c.poll() {
         Ok(s) => {
-            st.connected = true;
-            st.armed = s.armed();
-            st.heartbeat_age_s = 0.0;
+            st.connected = s.connected;
+            st.armed = s.armed;
+            st.heartbeat_age_s = s.heartbeat_age_s;
+            if !s.connected {
+                st.heartbeat_age_s += 1.0;
+            }
         }
         Err(e) => {
             st.heartbeat_age_s += 1.0;
@@ -47,67 +76,61 @@ fn refresh_status(state: &State<'_, AppState>) -> R<FcStatus> {
     Ok(st)
 }
 
-/// Full read after connect: identity, tune, logging config, storage.
-fn full_status(c: &mut MspClient) -> std::result::Result<(FcStatus, BfTune), fc_msp::MspError> {
-    let tune = c.read_tune()?;
-    let st = c.status()?;
-    let api = c.api();
-    let log_rate = c.blackbox_rate_hz()?;
-    let debug_mode = tune.get_raw("debug_mode").and_then(|v| v.parse::<u8>().ok());
-    // gyroUnfilt is logged natively from BF 4.4 (API 1.45); older builds need debug_mode 6 = GYRO_SCALED.
-    let raw_ok = api.at_least(1, 45) || debug_mode == Some(6);
-    let storage = match c.dataflash_summary() {
-        Ok(d) if d.supported => Some(d.total_size.saturating_sub(d.used_size) as u64),
-        _ => c.sdcard_summary()?.filter(|s| s.supported).map(|s| s.free_kb as u64 * 1024),
-    };
-    Ok((
-        FcStatus {
-            connected: true,
-            port: Some(c.port.clone()),
-            firmware: Some(c.firmware()),
-            armed: st.armed(),
-            heartbeat_age_s: 0.0,
-            tune: Some(Tune::Bf(tune.clone())),
-            log_rate_hz: log_rate,
-            debug_mode: debug_mode.map(|d| if d == 6 { "GYRO_SCALED".to_string() } else { d.to_string() }),
-            storage_free_bytes: storage,
-            pid_logging_enabled: Some(true),
-            raw_gyro_logging_enabled: Some(raw_ok),
-            snapshot_taken: false,
-        },
-        tune,
-    ))
-}
-
 #[tauri::command]
 pub fn fc_ports() -> Vec<PortInfo> {
     fc_msp::list_ports()
 }
 
+/// Open `port` as MSP or MAVLink. `auto` tries MAVLink heartbeat first (3 s), then MSP.
+fn open_client(port: &str, kind: ConnectKind) -> std::result::Result<Client, FcError> {
+    let try_mav = || -> std::result::Result<Client, FcError> { Ok(Box::new(fc_mavlink::MavClient::open(port, Duration::from_secs(3))?)) };
+    let try_msp = || -> std::result::Result<Client, FcError> { Ok(Box::new(MspClient::open(port)?)) };
+    match kind {
+        ConnectKind::Msp => try_msp(),
+        ConnectKind::Mavlink => try_mav(),
+        ConnectKind::Auto => {
+            if port.starts_with("tcp:") {
+                return try_mav();
+            }
+            match try_msp() {
+                Ok(c) => Ok(c),
+                Err(msp_err) => try_mav().map_err(|mav_err| FcError::Other(format!("MSP: {msp_err}; MAVLink: {mav_err}"))),
+            }
+        }
+    }
+}
+
 #[tauri::command]
-pub async fn fc_connect(state: State<'_, AppState>, port: String) -> R<FcStatus> {
+pub async fn fc_connect(state: State<'_, AppState>, port: String, kind: Option<ConnectKind>) -> R<FcStatus> {
     let p = port.clone();
-    let (client, mut status, tune) = tauri::async_runtime::spawn_blocking(move || -> R<(MspClient, FcStatus, BfTune)> {
-        let mut c = MspClient::open(&p).map_err(|e| format!("{p}: {e}"))?;
-        let (s, t) = full_status(&mut c).map_err(|e| e.to_string())?;
-        Ok((c, s, t))
+    let kind = kind.unwrap_or_default();
+    let (client, mut status) = tauri::async_runtime::spawn_blocking(move || -> R<(Client, FcStatus)> {
+        let mut c = open_client(&p, kind).map_err(|e| format!("{p}: {e}"))?;
+        let s = c.full_status().map_err(|e| e.to_string())?;
+        Ok((c, s))
     })
     .await
     .map_err(|e| e.to_string())??;
-    // Automatic MSP snapshot as the "00-" backup.
-    let snapshot_json = {
+    // Automatic snapshot as the "00-" backup: MSP struct dump (BF) / full parameter list (AP).
+    let snapshot: Option<(String, Vec<u8>)> = {
         let mut c = client;
-        let snap = c.snapshot().map_err(|e| e.to_string())?;
-        let json = serde_json::to_vec_pretty(&snap).map_err(|e| e.to_string())?;
+        let snap = match c.kind() {
+            FcKind::Msp => None, // BF: the cheap MSP snapshot is taken by the `diff all` backup step
+            FcKind::Mavlink => c.backup().ok().map(|b| (format!("{}.{}", b.label, b.ext), b.bytes)),
+        };
         *state.client.lock().unwrap() = Some(c);
-        json
+        snap
     };
     if let Some(e) = state.engine.lock().unwrap().as_mut() {
-        e.set_fc_tune(Some(Tune::Bf(tune)), status.firmware.clone()).map_err(|e| e.to_string())?;
-        if !e.session.snapshots.iter().any(|s| s.label.starts_with("00-")) {
-            e.add_snapshot("msp-snapshot", &snapshot_json).map_err(|e| e.to_string())?;
+        e.set_fc_tune(status.tune.clone(), status.firmware.clone()).map_err(|e| e.to_string())?;
+        if let Some((label, bytes)) = snapshot {
+            if !e.session.snapshots.iter().any(|s| s.label.starts_with("00-")) {
+                e.add_snapshot(&label, &bytes).map_err(|e| e.to_string())?;
+            }
+            status.snapshot_taken = true;
+        } else {
+            status.snapshot_taken = e.session.snapshots.iter().any(|s| s.label.starts_with("00-"));
         }
-        status.snapshot_taken = true;
     }
     *state.fc.lock().unwrap() = status.clone();
     Ok(status)
@@ -129,108 +152,82 @@ pub fn fc_poll(state: State<'_, AppState>) -> R<FcStatus> {
 /// Re-read tune + logging config (after a fix or a reboot).
 #[tauri::command]
 pub fn fc_refresh(state: State<'_, AppState>) -> R<FcStatus> {
-    let (mut st, tune) = with_client(&state, full_status)?;
+    let mut st = with_client(&state, |c| c.full_status())?;
     st.snapshot_taken = state.fc.lock().unwrap().snapshot_taken;
     if let Some(e) = state.engine.lock().unwrap().as_mut() {
-        e.set_fc_tune(Some(Tune::Bf(tune)), st.firmware.clone()).map_err(|e| e.to_string())?;
+        e.set_fc_tune(st.tune.clone(), st.firmware.clone()).map_err(|e| e.to_string())?;
     }
     *state.fc.lock().unwrap() = st.clone();
     Ok(st)
 }
 
-/// `diff all` backup through the CLI. Reboots the FC and reconnects.
+/// Full backup: BF `diff all` (reboots + reconnects), AP full `.param` list.
 #[tauri::command]
 pub async fn fc_backup_cli(state: State<'_, AppState>) -> R<FcStatus> {
-    let port = state.fc.lock().unwrap().port.clone().ok_or("not connected")?;
-    let mut client = state.client.lock().unwrap().take().ok_or("not connected")?;
-    let diff = tauri::async_runtime::spawn_blocking(move || -> R<String> {
-        let d = client.cli_diff_all().map_err(|e| e.to_string())?;
-        Ok(d)
-    })
-    .await
-    .map_err(|e| e.to_string())??;
+    let b = with_client_blocking(&state, |c| c.backup()).await?;
     if let Some(e) = state.engine.lock().unwrap().as_mut() {
-        e.add_snapshot("diff-all", diff.as_bytes()).map_err(|e| e.to_string())?;
+        e.add_snapshot(&format!("{}.{}", b.label, b.ext), &b.bytes).map_err(|e| e.to_string())?;
     }
-    let p = port.clone();
-    let c = tauri::async_runtime::spawn_blocking(move || fc_msp::client::reconnect(&p, std::time::Duration::from_secs(15)))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| format!("reconnect after backup: {e}"))?;
-    *state.client.lock().unwrap() = Some(c);
     let mut st = fc_refresh(state.clone())?;
     st.snapshot_taken = true;
     *state.fc.lock().unwrap() = st.clone();
     Ok(st)
 }
 
-/// Set blackbox rate ≥ 2 kHz and (on BF < 4.4) debug_mode = GYRO_SCALED.
+/// BF: blackbox rate ≥ 2 kHz (+ GYRO_SCALED on ≤ 4.3). AP: LOG_BITMASK bits 0/12/19 + batch sampler (reboots if needed).
 #[tauri::command]
-pub fn fc_preflight_fix(state: State<'_, AppState>) -> R<FcStatus> {
-    with_client(&state, |c| {
-        let api: ApiVersion = c.api();
-        let st = c.status()?;
-        if st.armed() {
-            return Err(fc_msp::MspError::Refused("armed".into()));
-        }
-        let loop_hz = if st.cycle_time_us > 0 { 1e6 / st.cycle_time_us as f64 } else { 8000.0 };
-        if let Some(mut bb) = c.read_blackbox()? {
-            if api.at_least(1, 44) {
-                // largest divisor that still gives ≥ 2 kHz
-                let mut div = 0u8;
-                while div < 4 && loop_hz / (1u32 << (div + 1)) as f64 >= 2000.0 {
-                    div += 1;
-                }
-                bb.sample_rate = div;
-            } else {
-                bb.rate_num = 1;
-                bb.rate_denom = ((loop_hz / 2000.0).floor() as u8).max(1);
-            }
-            if bb.device == 0 {
-                bb.device = 1; // flash
-            }
-            c.write_blackbox(&bb)?;
-        }
-        if !api.at_least(1, 45) {
-            if let Some(mut ac) = c.read_advanced_config()? {
-                ac.debug_mode = 6; // GYRO_SCALED
-                c.write_advanced_config(&ac)?;
-            }
-        }
-        c.eeprom_write()?;
-        Ok(())
-    })?;
+pub async fn fc_preflight_fix(state: State<'_, AppState>) -> R<FcStatus> {
+    let r = with_client_blocking(&state, |c| c.preflight_fix(PreflightFix::Logging)).await?;
+    if !r.verified {
+        let bad: Vec<String> = r.outcomes.iter().filter(|o| !o.ok).map(|o| format!("{} → {} (read back {:?})", o.param, o.wanted, o.read_back)).collect();
+        return Err(format!("logging fix not verified: {}", bad.join(", ")));
+    }
     fc_refresh(state)
 }
 
 #[derive(Serialize, Clone)]
 struct Progress {
-    done: u32,
-    total: u32,
+    done: u64,
+    total: u64,
 }
 
-/// Download the flash and import it as flight `which`.
+#[derive(Serialize)]
+pub struct FcLogEntry {
+    pub id: u32,
+    pub size: u64,
+    pub time_utc: Option<u64>,
+}
+
 #[tauri::command]
-pub async fn fc_download_import(app: AppHandle, state: State<'_, AppState>, which: Flight) -> R<ImportResult> {
+pub async fn fc_list_logs(state: State<'_, AppState>) -> R<Vec<FcLogEntry>> {
+    let l = with_client_blocking(&state, |c| c.list_logs()).await?;
+    Ok(l.into_iter().map(|e| FcLogEntry { id: e.id, size: e.size, time_utc: e.time_utc }).collect())
+}
+
+/// Download a log (BF: the flash; AP: `log_id` or the latest) and import it as flight `which`.
+#[tauri::command]
+pub async fn fc_download_import(app: AppHandle, state: State<'_, AppState>, which: Flight, log_id: Option<u32>) -> R<ImportResult> {
     let session_id = state.engine.lock().unwrap().as_ref().map(|e| e.session.id).ok_or("no session")?;
     let store = state.store.lock().unwrap().clone().ok_or("no store")?;
-    let mut client = state.client.lock().unwrap().take().ok_or("not connected")?;
+    let kind = state.fc.lock().unwrap().kind;
     let app2 = app.clone();
-    let (client, bytes) = tauri::async_runtime::spawn_blocking(move || {
-        let r = client.dataflash_download(|d, t| {
+    let cancel = Arc::new(AtomicBool::new(false));
+    let bytes = with_client_blocking(&state, move |c| {
+        let mut progress = |d: u64, t: u64| {
             let _ = app2.emit("fc://progress", Progress { done: d, total: t });
-        });
-        (client, r)
+        };
+        c.download_log(log_id, &mut progress, &cancel)
     })
-    .await
-    .map_err(|e| e.to_string())?;
-    *state.client.lock().unwrap() = Some(client);
-    let bytes = bytes.map_err(|e| e.to_string())?;
-    let rel = format!("logs/flash_{}.bbl", format!("{which:?}").to_lowercase());
+    .await?;
+    let ext = match kind {
+        Some(FcKind::Mavlink) => "bin",
+        _ => "bbl",
+    };
+    let rel = format!("logs/download_{}.{ext}", format!("{which:?}").to_lowercase());
     store.write_rel(session_id, &rel, &bytes).map_err(|e| e.to_string())?;
     let path = store.abs(session_id, &rel).display().to_string();
     // Pick the last session in the dump (most recent flight).
-    let sessions = bbl_ingest::list_sessions(&bytes);
+    let sessions = log_ingest::list_sessions(&bytes);
     let idx = sessions.iter().rev().find(|s| s.error.is_none()).map(|s| s.index).unwrap_or(0);
     crate::wizard::flight_import(state, which, path, idx).await
 }
@@ -241,45 +238,36 @@ pub struct FcApplyResult {
     pub snapshot: SessionSnapshot,
 }
 
-/// Write the accepted recommendations of `phase` and verify by read-back.
+/// Write the accepted recommendations of `phase` and verify by read-back
+/// (the backend reboots + reconnects itself when a parameter needs it).
 #[tauri::command]
 pub async fn fc_apply(state: State<'_, AppState>, phase: ApplyPhase) -> R<FcApplyResult> {
     let recs: Vec<Recommendation> = state.engine.lock().unwrap().as_ref().ok_or("no session")?.session.recs(phase).clone();
-    let port = state.fc.lock().unwrap().port.clone().ok_or("not connected")?;
-    let mut client = state.client.lock().unwrap().take().ok_or("not connected")?;
-    let (client, result) = tauri::async_runtime::spawn_blocking(move || {
-        let r = client.apply(&recs);
-        (client, r)
-    })
-    .await
-    .map_err(|e| e.to_string())?;
-    let result = match result {
-        Ok(r) => r,
-        Err(e) => {
-            *state.client.lock().unwrap() = Some(client);
-            return Err(e.to_string());
-        }
+    let kind = state.fc.lock().unwrap().kind;
+    let result = with_client_blocking(&state, move |c| c.apply(&recs)).await?;
+    let method = match kind {
+        Some(FcKind::Mavlink) => "mavlink",
+        _ => "msp",
     };
-    let client = if result.rebooted {
-        let p = port.clone();
-        tauri::async_runtime::spawn_blocking(move || fc_msp::client::reconnect(&p, std::time::Duration::from_secs(15)))
-            .await
-            .map_err(|e| e.to_string())?
-            .map_err(|e| format!("reconnect after save: {e}"))?
-    } else {
-        client
-    };
-    *state.client.lock().unwrap() = Some(client);
     let notes = serde_json::to_string(&result.outcomes).ok();
     let snapshot = {
         let fc = state.fc.lock().unwrap().clone();
         let mut g = state.engine.lock().unwrap();
         let e = g.as_mut().ok_or("no session")?;
-        e.record_apply(phase, result.verified, "msp", notes).map_err(|e| e.to_string())?;
+        e.record_apply(phase, result.verified, method, notes).map_err(|e| e.to_string())?;
         e.snapshot(Some(&fc))
     };
     let _ = fc_refresh(state.clone());
     Ok(FcApplyResult { result, snapshot })
+}
+
+/// Text the pilot can apply by hand (BF CLI `set` lines / AP `NAME,VALUE`).
+#[tauri::command]
+pub fn fc_export_text(state: State<'_, AppState>, phase: ApplyPhase) -> R<String> {
+    let g = state.engine.lock().unwrap();
+    let e = g.as_ref().ok_or("no session")?;
+    let fw = state.fc.lock().unwrap().firmware.clone().or_else(|| e.session.firmware.clone());
+    Ok(domain::fc::export_text_for(fw.as_ref(), e.session.recs(phase)))
 }
 
 #[allow(dead_code)]

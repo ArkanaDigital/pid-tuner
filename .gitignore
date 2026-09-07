@@ -13,4 +13,5 @@
 /fixtures/ap/*
 !/fixtures/bf/.gitkeep
 !/fixtures/ap/.gitkeep
+!/fixtures/ap/*.golden.json
 /target-win

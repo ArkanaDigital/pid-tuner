@@ -61,6 +61,13 @@ impl Default for StepOpts {
 }
 
 impl StepOpts {
+    /// ArduPilot Copter: pilot inputs are shaped by `ATC_INPUT_TC` (default
+    /// 0.15 s, `AC_AttitudeControl.cpp`) so setpoint amplitudes are lower and
+    /// smoother than Betaflight acro; accept smaller inputs.
+    pub fn ardupilot() -> Self {
+        Self { min_input_dps: 10.0, ..Default::default() }
+    }
+
     pub fn pid_analyzer() -> Self {
         Self {
             variant: StepVariant::PidAnalyzer,
@@ -300,6 +307,7 @@ mod tests {
             gaps: vec![],
             meta: LogMeta::default(),
             tune_at_log: Tune::Unknown,
+            gyro_hr: Vec::new(),
         }
     }
 

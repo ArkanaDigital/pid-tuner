@@ -273,7 +273,9 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
             session_count,
             headers: raw_headers,
             warnings,
+            msg_rates_hz: Default::default(),
         },
         tune_at_log: Tune::Bf(bf_tune),
+        gyro_hr: Vec::new(),
     })
 }

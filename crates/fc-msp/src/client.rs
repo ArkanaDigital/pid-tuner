@@ -15,22 +15,7 @@ pub struct MspClient {
     pub port: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApplyOutcome {
-    pub param: String,
-    pub wanted: String,
-    pub read_back: Option<String>,
-    pub ok: bool,
-    pub via: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApplyResult {
-    pub outcomes: Vec<ApplyOutcome>,
-    pub verified: bool,
-    /// CLI `save` was needed (FC rebooted; caller must reconnect).
-    pub rebooted: bool,
-}
+pub use domain::fc::{ApplyOutcome, ApplyResult};
 
 /// Everything we can read over MSP, stored as the pre-write snapshot.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -232,6 +217,8 @@ impl MspClient {
     }
 
     /// `diff all` via CLI. **Reboots the FC**; reconnect afterwards.
+    /// `diff all` via the CLI. Leaving the CLI (`exit`) reboots the FC: the
+    /// caller must reconnect (`reconnect`) afterwards.
     pub fn cli_diff_all(&mut self) -> Result<String, MspError> {
         let mut cli = Cli::enter(&mut self.link)?;
         let diff = cli.diff_all()?;

@@ -209,6 +209,11 @@ impl SessionEngine {
         self.touch()
     }
 
+    pub fn set_pid_strategy(&mut self, s: PidStrategy) -> Result<()> {
+        self.session.pid_strategy = s;
+        self.touch()
+    }
+
     pub fn set_notes(&mut self, notes: String) -> Result<()> {
         self.session.notes = notes;
         self.touch()
@@ -255,6 +260,7 @@ mod tests {
             gaps: vec![],
             meta: LogMeta { duration_s: dur, ..Default::default() },
             tune_at_log: Tune::Bf(BfTune::default()),
+            gyro_hr: Vec::new(),
         };
         let bundle = AnalysisBundle {
             log: log.id.clone(),
@@ -266,6 +272,9 @@ mod tests {
                 hover_seconds: dur,
                 hover_throttle_pct: 45.0,
                 airborne_range_s: None,
+                pid_rate_hz: None,
+                max_pid_out: None,
+                gyro_hr_batches: 0,
                 motor_saturation_pct: 0.0,
                 max_setpoint_per_axis: [300.0, 300.0, 300.0],
                 step_segments_per_axis: [10, 10, 5],

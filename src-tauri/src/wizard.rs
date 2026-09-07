@@ -138,7 +138,7 @@ pub async fn flight_import(state: State<'_, AppState>, which: Flight, path: Stri
     let p = path.clone();
     let (log, bundle) = tauri::async_runtime::spawn_blocking(move || -> R<(FlightLog, AnalysisBundle)> {
         let bytes = std::fs::read(&p).map_err(|e| format!("read {p}: {e}"))?;
-        let log = bbl_ingest::ingest(&bytes, session_index, &Default::default()).map_err(|e| e.to_string())?;
+        let log = log_ingest::ingest(&bytes, session_index).map_err(|e| e.to_string())?;
         let bundle = analysis::analyze(&log, &analysis::AnalysisOpts::default(), |_| {});
         Ok((log, bundle))
     })
@@ -154,7 +154,7 @@ pub async fn flight_import(state: State<'_, AppState>, which: Flight, path: Stri
             Flight::C => None,
         };
         if let Some(ph) = phase {
-            let recs = recommend::recommend(&log.tune_at_log, &bundle, ph);
+            let recs = recommend::recommend_for_log(&log, &bundle, ph);
             let ap = if ph == recommend::Phase::Filters { ApplyPhase::Filters } else { ApplyPhase::Pids };
             e.set_recs(ap, recs).map_err(|e| e.to_string())?;
         }
@@ -198,6 +198,20 @@ pub fn apply_confirm(state: State<'_, AppState>, phase: ApplyPhase, method: Stri
 #[tauri::command]
 pub fn fc_status(state: State<'_, AppState>) -> R<FcStatus> {
     Ok(state.fc.lock().unwrap().clone())
+}
+
+#[tauri::command]
+pub fn wizard_pid_strategy(state: State<'_, AppState>, strategy: PidStrategy) -> R<SessionSnapshot> {
+    with_engine(&state, |e, fc| {
+        e.set_pid_strategy(strategy).map_err(|e| e.to_string())?;
+        Ok(snap(e, fc))
+    })
+}
+
+/// Write UTF-8 text to a path the user chose in a save dialog (`.param` / CLI text).
+#[tauri::command]
+pub fn save_text_file(path: String, text: String) -> R<()> {
+    std::fs::write(&path, text).map_err(|e| format!("write {path}: {e}"))
 }
 
 #[tauri::command]

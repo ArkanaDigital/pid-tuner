@@ -4,6 +4,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+pub mod ap_consts;
+pub mod fc;
 pub mod tune;
 pub use tune::*;
 
@@ -90,6 +92,9 @@ pub struct LogMeta {
     pub headers: BTreeMap<String, String>,
     /// Non-fatal issues discovered while ingesting.
     pub warnings: Vec<String>,
+    /// Measured logging rate per message type (ArduPilot: RATE, PIDR, IMU, ISBD, …).
+    #[serde(default)]
+    pub msg_rates_hz: BTreeMap<String, f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,6 +117,35 @@ pub struct FlightLog {
     pub meta: LogMeta,
     /// Tune parsed from the log itself (BF header / AP PARM).
     pub tune_at_log: Tune,
+    /// High-rate gyro tracks that cannot live on the uniform grid (ArduPilot
+    /// IMU batch sampler): bursts of samples at their own rate.
+    #[serde(default)]
+    pub gyro_hr: Vec<RawGyroTrack>,
+}
+
+/// One burst of consecutive gyro samples (ArduPilot `ISBH` + its `ISBD` chunks).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GyroBatch {
+    /// Start time (seconds, same base as `FlightLog::t`).
+    pub t0_s: f32,
+    /// Roll, pitch, yaw rates in deg/s.
+    pub xyz: [Vec<f32>; 3],
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RawGyroTrack {
+    pub fs_hz: f64,
+    /// Sensor instance as logged.
+    pub instance: u8,
+    /// True when this track is post-filter data (`INS_LOG_BAT_OPT` bit 1/2).
+    pub post_filter: bool,
+    pub batches: Vec<GyroBatch>,
+}
+
+impl RawGyroTrack {
+    pub fn total_samples(&self) -> usize {
+        self.batches.iter().map(|b| b.xyz[0].len()).sum()
+    }
 }
 
 impl FlightLog {
@@ -238,6 +272,15 @@ pub struct LogQuality {
     /// Number of usable step segments per axis (as counted by the step estimator).
     pub step_segments_per_axis: [usize; 3],
     pub gap_seconds: f64,
+    /// ArduPilot: measured PIDx logging rate (None when PIDx absent).
+    #[serde(default)]
+    pub pid_rate_hz: Option<f64>,
+    /// Max |PID output| per axis (ArduPilot `RATE.*Out`, −1..1). None for Betaflight.
+    #[serde(default)]
+    pub max_pid_out: Option<[f32; 3]>,
+    /// Number of high-rate gyro batches available for spectra.
+    #[serde(default)]
+    pub gyro_hr_batches: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

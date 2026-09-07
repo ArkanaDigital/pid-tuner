@@ -5,25 +5,7 @@ use crate::model::*;
 use domain::*;
 use serde::{Deserialize, Serialize};
 
-/// Live flight-controller status supplied by the `fc` layer.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct FcStatus {
-    pub connected: bool,
-    pub port: Option<String>,
-    pub firmware: Option<Firmware>,
-    pub armed: bool,
-    pub heartbeat_age_s: f32,
-    pub tune: Option<Tune>,
-    /// Effective blackbox logging rate in Hz (BF) or loop-rate PID logging (AP).
-    pub log_rate_hz: Option<f64>,
-    pub debug_mode: Option<String>,
-    pub storage_free_bytes: Option<u64>,
-    /// AP: LOG_BITMASK bits 0 and 12 set; BF: always true.
-    pub pid_logging_enabled: Option<bool>,
-    /// AP: INS_RAW_LOG_OPT or batch sampler configured; BF: gyroUnfilt native or debug GYRO_SCALED.
-    pub raw_gyro_logging_enabled: Option<bool>,
-    pub snapshot_taken: bool,
-}
+pub use domain::fc::FcStatus;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -53,11 +35,30 @@ pub struct GuardCtx<'a> {
     pub fc: Option<&'a FcStatus>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Fw {
+    Any,
+    Bf,
+    Ap,
+}
+
 struct GuardDef {
     id: &'static str,
     title: &'static str,
     can_override: bool,
+    fw: Fw,
     eval: fn(&GuardCtx) -> GuardOutcome,
+}
+
+/// Firmware the session is about: from the FC when connected, else from the
+/// first imported log, else unknown (both guard sets apply where sensible).
+fn session_fw(c: &GuardCtx) -> Option<Fw> {
+    let f = c.fc.and_then(|f| f.firmware.clone()).or_else(|| c.session.firmware.clone())?;
+    Some(match f {
+        Firmware::Betaflight { .. } => Fw::Bf,
+        Firmware::ArduCopter { .. } => Fw::Ap,
+        Firmware::Unknown { .. } => return None,
+    })
 }
 
 fn pass() -> GuardOutcome {
@@ -88,7 +89,11 @@ fn fc_supported(c: &GuardCtx) -> GuardOutcome {
             let ok = version.split('.').next().and_then(|m| m.parse::<u32>().ok()).map(|m| m >= 4).unwrap_or(false);
             if ok { pass() } else { fail(format!("Betaflight {version} is not supported (need ≥ 4.3)."), None) }
         }
-        Some(Firmware::ArduCopter { .. }) => pass(),
+        Some(Firmware::ArduCopter { version }) => {
+            let mut it = version.split('.').map(|x| x.parse::<u32>().unwrap_or(0));
+            let (maj, min) = (it.next().unwrap_or(0), it.next().unwrap_or(0));
+            if maj > 4 || (maj == 4 && min >= 4) { pass() } else { fail(format!("ArduCopter {version} is not supported (need ≥ 4.4: PIDx SRate and ISBH layouts)."), None) }
+        }
         Some(Firmware::Unknown { product }) => fail(format!("Unsupported firmware: {product}"), None),
         None => action("Waiting for firmware identification…"),
     }
@@ -281,6 +286,18 @@ fn tune_matches(c: &GuardCtx, which: Flight, phase: Option<ApplyPhase>) -> Guard
             return fail("PIDs in the log differ from the flight controller's current PIDs.", Some("Re-fly with the current settings."));
         }
     }
+    if let (Some(Tune::Ap(ft)), Tune::Ap(lt)) = (&c.session.fc_tune, &r.tune) {
+        let diff: Vec<String> = ["ATC_RAT_RLL_P", "ATC_RAT_RLL_I", "ATC_RAT_RLL_D", "ATC_RAT_PIT_P", "ATC_RAT_PIT_I", "ATC_RAT_PIT_D", "ATC_RAT_YAW_P", "ATC_RAT_YAW_I", "ATC_RAT_YAW_D", "INS_GYRO_FILTER", "INS_HNTCH_FREQ"]
+            .iter()
+            .filter_map(|n| match (ft.get(n), lt.get(n)) {
+                (Some(a), Some(b)) if (a - b).abs() > 1e-6 * a.abs().max(1.0) => Some(format!("{n} log {b} vs FC {a}")),
+                _ => None,
+            })
+            .collect();
+        if !diff.is_empty() {
+            return fail(format!("Log tune differs from the flight controller: {}", diff.join("; ")), Some("Re-fly with the current settings."));
+        }
+    }
     pass()
 }
 
@@ -347,6 +364,155 @@ fn applied_impl(c: &GuardCtx, phase: ApplyPhase) -> GuardOutcome {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ArduPilot guards. Every ArduPilot constant comes from `domain::ap_consts`
+// (cited there); thresholds marked "ours" are ours.
+// ---------------------------------------------------------------------------
+
+use domain::ap_consts::*;
+
+/// ours: measured PIDx rate must reach this fraction of the loop rate.
+const AP_PID_RATE_FRACTION: f64 = 0.9;
+/// ours: batches needed for a trustworthy averaged spectrum.
+const AP_MIN_GYRO_BATCHES: usize = 20;
+/// ours: ~30 % of default Stabilize rates (ANGLE_MAX 4500 cd × ATC_ANG_*_P 4.5 ≈ 200 °/s) — small but real inputs.
+const AP_MIN_SETPOINT_RP_DPS: f32 = 60.0;
+/// ours: yaw is slower (PILOT_Y_RATE default 202.5 °/s).
+const AP_MIN_SETPOINT_YAW_DPS: f32 = 40.0;
+/// ours: mixer output within this fraction of saturation is fine.
+const AP_MAX_PID_OUT: f32 = 0.9;
+
+fn ap_bits(mask: u32, wanted: u32) -> bool {
+    mask & wanted == wanted
+}
+
+fn ap_log_bitmask(c: &GuardCtx) -> GuardOutcome {
+    let Some(f) = c.fc.filter(|f| f.connected) else { return action("Not connected.") };
+    match f.log_bitmask {
+        Some(m) if ap_bits(m, LOG_BIT_ATTITUDE_FAST | LOG_BIT_PID) => pass(),
+        Some(m) => fail(
+            format!("LOG_BITMASK = {m} lacks bit 0 (ATTITUDE_FAST) and/or bit 12 (PID); RATE/PIDx would log at 10 Hz instead of the loop rate."),
+            Some("Preflight fix sets LOG_BITMASK |= bit 0 | bit 12 | bit 19 (ArduCopter/defines.h MASK_LOG_*)."),
+        ),
+        None => action("Reading LOG_BITMASK…"),
+    }
+}
+
+fn ap_batch_configured(c: &GuardCtx) -> GuardOutcome {
+    let Some(f) = c.fc.filter(|f| f.connected) else { return action("Not connected.") };
+    match f.batch_configured {
+        Some(true) => pass(),
+        Some(false) => fail(
+            "IMU batch sampler is off: no gyro spectrum will be logged.",
+            Some("Set LOG_BITMASK bit 19 (IMU_RAW), INS_LOG_BAT_MASK = 1, INS_LOG_BAT_OPT = 4 (pre + post filter), INS_LOG_BAT_CNT = 1024, INS_LOG_BAT_LGIN = 20. INS_LOG_BAT_MASK needs a reboot."),
+        ),
+        None => action("Reading INS_LOG_BAT_* …"),
+    }
+}
+
+fn ap_pid_rate_guard(r: &FlightRecord) -> GuardOutcome {
+    let loop_hz = r.tune_loop_rate();
+    match (r.quality.pid_rate_hz, loop_hz) {
+        (None, _) => fail("PIDR/PIDP/PIDY are not in the log (LOG_BITMASK bit 12 PID).", Some("Enable bit 12 and bit 0 of LOG_BITMASK and re-fly.")),
+        (Some(pr), Some(lh)) if pr >= AP_PID_RATE_FRACTION * lh => pass(),
+        (Some(pr), Some(lh)) => fail(
+            format!("PIDx logged at {pr:.0} Hz but the loop runs at {lh:.0} Hz (SCHED_LOOP_RATE): LOG_BITMASK bit 0 (ATTITUDE_FAST) is off, so the step response cannot be estimated."),
+            Some("Set LOG_BITMASK bit 0 (MASK_LOG_ATTITUDE_FAST, ArduCopter/Copter.cpp loop_rate_logging) and re-fly."),
+        ),
+        (Some(pr), None) if pr >= 200.0 => pass(),
+        (Some(pr), None) => fail(format!("PIDx logged at only {pr:.0} Hz."), Some("Set LOG_BITMASK bit 0 (ATTITUDE_FAST).")),
+    }
+}
+
+fn ap_isbh_guard(r: &FlightRecord) -> GuardOutcome {
+    if r.quality.gyro_hr_batches >= AP_MIN_GYRO_BATCHES {
+        pass()
+    } else if r.quality.gyro_hr_batches == 0 {
+        fail("No IMU batch-sampler data (ISBH/ISBD) in the log.", Some("LOG_BITMASK bit 19 + INS_LOG_BAT_MASK = 1, INS_LOG_BAT_OPT = 4 (needs reboot), then re-fly."))
+    } else {
+        fail(format!("Only {} gyro batches; need ≥ {AP_MIN_GYRO_BATCHES} for an averaged spectrum.", r.quality.gyro_hr_batches), Some("Fly longer (≥ 40 s) or lower INS_LOG_BAT_LGIN."))
+    }
+}
+
+fn ap_steps_guard(r: &FlightRecord) -> GuardOutcome {
+    let s = r.quality.step_segments_per_axis;
+    let ms = r.quality.max_setpoint_per_axis;
+    let mut problems = Vec::new();
+    for (k, name, need, min_sp) in [(0, "roll", 30usize, AP_MIN_SETPOINT_RP_DPS), (1, "pitch", 30, AP_MIN_SETPOINT_RP_DPS), (2, "yaw", 10, AP_MIN_SETPOINT_YAW_DPS)] {
+        if s[k] < need {
+            let why = if ms[k] < min_sp {
+                format!("{name}: only {} usable segments — stick input too small (max {:.0} °/s, need ≥ {min_sp:.0})", s[k], ms[k])
+            } else {
+                format!("{name}: only {} usable segments (need ≥ {need})", s[k])
+            };
+            problems.push(why);
+        }
+    }
+    if problems.is_empty() {
+        pass()
+    } else {
+        fail(problems.join("; "), Some("In Stabilize: crisp stick steps on ONE axis at a time (roll ×10, pitch ×10, yaw ×5), hold ~½ s. ATC_INPUT_TC smooths the target, so keep the moves sharp."))
+    }
+}
+
+fn ap_hover_guard(r: &FlightRecord) -> GuardOutcome {
+    if r.quality.hover_seconds >= 30.0 {
+        pass()
+    } else {
+        fail(format!("Only {:.1} s of steady hover (need ≥ 30 s).", r.quality.hover_seconds), Some("Hover in AltHold/Loiter for 30–40 s without stick input."))
+    }
+}
+
+fn ap_saturation_guard(r: &FlightRecord) -> GuardOutcome {
+    match r.quality.max_pid_out {
+        Some(m) if m.iter().all(|v| *v < AP_MAX_PID_OUT) => pass(),
+        Some(m) => fail(
+            format!("Mixer output saturated (RATE.*Out max R/P/Y = {:.2}/{:.2}/{:.2}); gains cannot be judged.", m[0], m[1], m[2]),
+            Some("Reduce ATC_RAT_* gains or check motor/prop sizing before tuning."),
+        ),
+        None => pass(),
+    }
+}
+
+impl FlightRecord {
+    /// `SCHED_LOOP_RATE` from the tune parsed out of the log.
+    pub fn tune_loop_rate(&self) -> Option<f64> {
+        match &self.tune {
+            Tune::Ap(t) => t.get("SCHED_LOOP_RATE").map(|v| v as f64),
+            _ => None,
+        }
+    }
+}
+
+/// AUTOTUNE branch: the verification log must show new ATC_RAT_{axis}_{P,D}
+/// for every axis in AUTOTUNE_AXES and D above AUTOTUNE_MIN_D (a D that ends
+/// at the floor means the tune failed — ArduCopter AUTOTUNE docs / AC_AutoTune_Multi).
+fn autotune_result(c: &GuardCtx) -> GuardOutcome {
+    if c.session.pid_strategy != PidStrategy::Autotune {
+        return pass();
+    }
+    let (Some(b), Some(cc)) = (record(c, Flight::B), record(c, Flight::C)) else { return action("Import logs B and C.") };
+    let (Tune::Ap(before), Tune::Ap(after)) = (&b.tune, &cc.tune) else { return pass() };
+    let axes = after.get("AUTOTUNE_AXES").unwrap_or(7.0) as u32;
+    let min_d = after.get("AUTOTUNE_MIN_D").unwrap_or(0.001);
+    let mut problems = Vec::new();
+    for (bit, ax) in [(1u32, "RLL"), (2, "PIT"), (4, "YAW")] {
+        if axes & bit == 0 {
+            continue;
+        }
+        let p = format!("ATC_RAT_{ax}_P");
+        let d = format!("ATC_RAT_{ax}_D");
+        let (bp, ap_) = (before.get(&p).unwrap_or(0.0), after.get(&p).unwrap_or(0.0));
+        let (bd, ad) = (before.get(&d).unwrap_or(0.0), after.get(&d).unwrap_or(0.0));
+        if (bp - ap_).abs() < 1e-6 && (bd - ad).abs() < 1e-6 {
+            problems.push(format!("{ax}: P/D unchanged — AUTOTUNE was not saved for this axis"));
+        } else if ax != "YAW" && ad <= min_d + 1e-9 {
+            problems.push(format!("{ax}: D = {ad} is at AUTOTUNE_MIN_D — the tune failed (lower AUTOTUNE_AGGR, check frame stiffness)"));
+        }
+    }
+    if problems.is_empty() { pass() } else { fail(problems.join("; "), Some("Re-run AUTOTUNE and land/disarm without touching the sticks to save it, or switch to the heuristic path.")) }
+}
+
 fn report_written(c: &GuardCtx) -> GuardOutcome {
     if c.session.report_file.is_some() { pass() } else { action("Export the report.") }
 }
@@ -358,7 +524,10 @@ fn report_written(c: &GuardCtx) -> GuardOutcome {
 fn defs(step: Step) -> Vec<GuardDef> {
     macro_rules! g {
         ($id:expr, $title:expr, $ov:expr, $f:expr) => {
-            GuardDef { id: $id, title: $title, can_override: $ov, eval: $f }
+            GuardDef { id: $id, title: $title, can_override: $ov, fw: Fw::Any, eval: $f }
+        };
+        ($id:expr, $title:expr, $ov:expr, $fw:expr, $f:expr) => {
+            GuardDef { id: $id, title: $title, can_override: $ov, fw: $fw, eval: $f }
         };
     }
     match step {
@@ -370,17 +539,21 @@ fn defs(step: Step) -> Vec<GuardDef> {
         ],
         Step::Preflight => vec![
             g!("fc_disarmed", "Disarmed, props off", false, fc_disarmed),
-            g!("log_rate", "Logging rate ≥ 2 kHz", true, log_rate_ok),
-            g!("raw_gyro_logging", "Unfiltered gyro logged", true, raw_gyro_logging),
+            g!("log_rate", "Logging rate ≥ 2 kHz", true, Fw::Bf, log_rate_ok),
+            g!("raw_gyro_logging", "Unfiltered gyro logged", true, Fw::Bf, raw_gyro_logging),
+            g!("ap_log_bitmask", "LOG_BITMASK bits 0 + 12 (loop-rate RATE/PIDx)", true, Fw::Ap, ap_log_bitmask),
+            g!("ap_batch", "IMU batch sampler configured", true, Fw::Ap, ap_batch_configured),
             g!("storage_free", "≥ 4 MB log storage free", true, storage_free),
         ],
         Step::FlightA => vec![g!("flight_done", "Flight A completed", false, flight_done(Flight::A))],
         Step::ImportA => vec![
             g!("imported", "Log imported", false, log_imported(Flight::A)),
-            g!("log_rate", "Log rate ≥ 2 kHz", true, |c| record(c, Flight::A).map(log_rate_guard).unwrap_or_else(|| action("Import first."))),
+            g!("log_rate", "Log rate ≥ 2 kHz", true, Fw::Bf, |c| record(c, Flight::A).map(log_rate_guard).unwrap_or_else(|| action("Import first."))),
             g!("duration", "≥ 40 s of data", true, |c| record(c, Flight::A).map(|r| duration_guard(r, 40.0)).unwrap_or_else(|| action("Import first."))),
-            g!("raw_gyro", "Unfiltered gyro present", true, |c| record(c, Flight::A).map(raw_gyro_guard).unwrap_or_else(|| action("Import first."))),
-            g!("hover", "≥ 20 s of steady hover", true, |c| record(c, Flight::A).map(hover_guard).unwrap_or_else(|| action("Import first."))),
+            g!("raw_gyro", "Unfiltered gyro present", true, Fw::Bf, |c| record(c, Flight::A).map(raw_gyro_guard).unwrap_or_else(|| action("Import first."))),
+            g!("ap_isbh", "IMU batch-sampler gyro data present", true, Fw::Ap, |c| record(c, Flight::A).map(ap_isbh_guard).unwrap_or_else(|| action("Import first."))),
+            g!("hover", "≥ 20 s of steady hover", true, Fw::Bf, |c| record(c, Flight::A).map(hover_guard).unwrap_or_else(|| action("Import first."))),
+            g!("ap_hover", "≥ 30 s of steady hover", true, Fw::Ap, |c| record(c, Flight::A).map(ap_hover_guard).unwrap_or_else(|| action("Import first."))),
             g!("saturation", "Motor saturation < 5 %", true, |c| record(c, Flight::A).map(saturation_guard).unwrap_or_else(|| action("Import first."))),
             g!("tune_match", "Log matches current tune", true, |c| tune_matches(c, Flight::A, None)),
         ],
@@ -392,10 +565,13 @@ fn defs(step: Step) -> Vec<GuardDef> {
         Step::FlightB => vec![g!("flight_done", "Flight B completed", false, flight_done(Flight::B))],
         Step::ImportB => vec![
             g!("imported", "Log imported", false, log_imported(Flight::B)),
-            g!("log_rate", "Log rate ≥ 1 kHz", true, |c| record(c, Flight::B).map(|r| if r.quality.fs_hz >= 950.0 { pass() } else { log_rate_guard(r) }).unwrap_or_else(|| action("Import first."))),
+            g!("log_rate", "Log rate ≥ 1 kHz", true, Fw::Bf, |c| record(c, Flight::B).map(|r| if r.quality.fs_hz >= 950.0 { pass() } else { log_rate_guard(r) }).unwrap_or_else(|| action("Import first."))),
+            g!("ap_pid_rate", "PIDx logged at loop rate", true, Fw::Ap, |c| record(c, Flight::B).map(ap_pid_rate_guard).unwrap_or_else(|| action("Import first."))),
             g!("duration", "≥ 30 s of data", true, |c| record(c, Flight::B).map(|r| duration_guard(r, 30.0)).unwrap_or_else(|| action("Import first."))),
-            g!("steps", "Enough stick steps per axis", true, |c| record(c, Flight::B).map(steps_guard).unwrap_or_else(|| action("Import first."))),
+            g!("steps", "Enough stick steps per axis", true, Fw::Bf, |c| record(c, Flight::B).map(steps_guard).unwrap_or_else(|| action("Import first."))),
+            g!("ap_steps", "Enough stick steps per axis", true, Fw::Ap, |c| record(c, Flight::B).map(ap_steps_guard).unwrap_or_else(|| action("Import first."))),
             g!("saturation", "Motor saturation < 5 %", true, |c| record(c, Flight::B).map(saturation_guard).unwrap_or_else(|| action("Import first."))),
+            g!("ap_saturation", "Mixer output not saturated", true, Fw::Ap, |c| record(c, Flight::B).map(ap_saturation_guard).unwrap_or_else(|| action("Import first."))),
             g!("tune_match", "Log flown with the applied filters", true, |c| tune_matches(c, Flight::B, Some(ApplyPhase::Filters))),
         ],
         Step::PidAnalysis => vec![g!("analysis", "Step-response analysis complete", false, analysis_done(Flight::B))],
@@ -406,8 +582,11 @@ fn defs(step: Step) -> Vec<GuardDef> {
         Step::FlightC => vec![g!("flight_done", "Verification flight completed", false, flight_done(Flight::C))],
         Step::ImportC => vec![
             g!("imported", "Log imported", false, log_imported(Flight::C)),
-            g!("steps", "Enough stick steps per axis", true, |c| record(c, Flight::C).map(steps_guard).unwrap_or_else(|| action("Import first."))),
+            g!("ap_pid_rate", "PIDx logged at loop rate", true, Fw::Ap, |c| record(c, Flight::C).map(ap_pid_rate_guard).unwrap_or_else(|| action("Import first."))),
+            g!("steps", "Enough stick steps per axis", true, Fw::Bf, |c| record(c, Flight::C).map(steps_guard).unwrap_or_else(|| action("Import first."))),
+            g!("ap_steps", "Enough stick steps per axis", true, Fw::Ap, |c| record(c, Flight::C).map(ap_steps_guard).unwrap_or_else(|| action("Import first."))),
             g!("tune_match", "Log flown with the applied PIDs", true, |c| tune_matches(c, Flight::C, Some(ApplyPhase::Pids))),
+            g!("autotune_result", "AUTOTUNE changed the rate gains", true, Fw::Ap, autotune_result),
         ],
         Step::Compare => vec![g!("have_logs", "Before and after logs available", false, |c| if c.session.flights.contains_key(&Flight::B) && c.session.flights.contains_key(&Flight::C) { pass() } else { action("Logs B and C are required.") })],
         Step::Report => vec![g!("report", "Report exported", false, report_written)],
@@ -416,8 +595,16 @@ fn defs(step: Step) -> Vec<GuardDef> {
 
 /// Evaluate every guard of `step`.
 pub fn evaluate(step: Step, ctx: &GuardCtx) -> Vec<GuardResult> {
+    let fw = session_fw(ctx);
     defs(step)
         .into_iter()
+        .filter(|d| match (d.fw, fw) {
+            (Fw::Any, _) => true,
+            (Fw::Bf, Some(Fw::Bf)) | (Fw::Ap, Some(Fw::Ap)) => true,
+            // Firmware not known yet: keep Betaflight guards (the default path) hidden for AP-only ids
+            (Fw::Bf, None) => true,
+            _ => false,
+        })
         .map(|d| GuardResult {
             id: d.id.to_string(),
             title: d.title.to_string(),

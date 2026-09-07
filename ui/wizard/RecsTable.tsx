@@ -1,11 +1,19 @@
 import { api } from "../lib/api";
 import { run, useStore } from "../lib/store";
-import { paramValueText, type ApplyPhase, type ParamValue, type Recommendation } from "../lib/types";
+import { isArduPilot, paramValueText, type ApplyPhase, type Firmware, type ParamValue, type Recommendation } from "../lib/types";
 
-export function cliText(recs: Recommendation[]): string {
-  const lines = recs.filter((r) => r.accepted).map((r) => `set ${r.param.name} = ${paramValueText(r.new)}`);
-  return lines.length ? `# PID Tuner\n${lines.join("\n")}\nsave` : "";
+/** Text the pilot can apply by hand: Betaflight CLI `set` lines, or ArduPilot `NAME,VALUE` (.param) lines. */
+export function paramText(recs: Recommendation[], firmware: Firmware | null | undefined): string {
+  const acc = recs.filter((r) => r.accepted);
+  if (!acc.length) return "";
+  if (isArduPilot(firmware) || acc.every((r) => r.param.firmware === "ap")) {
+    return `# PID Tuner — ArduPilot parameters (load with Mission Planner / QGC)\n${acc.map((r) => `${r.param.name},${paramValueText(r.new)}`).join("\n")}\n`;
+  }
+  return `# PID Tuner\n${acc.map((r) => `set ${r.param.name} = ${paramValueText(r.new)}`).join("\n")}\nsave`;
 }
+
+/** @deprecated use paramText */
+export const cliText = (recs: Recommendation[]) => paramText(recs, null);
 
 export default function RecsTable({ phase, recs, editable }: { phase: ApplyPhase; recs: Recommendation[]; editable: boolean }) {
   const s = useStore();

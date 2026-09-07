@@ -42,10 +42,11 @@ fn main() -> Result<()> {
     match cli.cmd {
         Cmd::Sessions { file } => {
             let bytes = std::fs::read(&file).with_context(|| format!("read {}", file.display()))?;
-            for s in bbl_ingest::list_sessions(&bytes) {
+            for s in log_ingest::list_sessions(&bytes) {
                 println!(
-                    "#{:<3} {:<40} {:<20} {}",
+                    "#{:<3} {:?} {:<40} {:<20} {}",
                     s.index,
+                    s.format,
                     s.firmware_revision,
                     s.craft_name.unwrap_or_default(),
                     s.error.unwrap_or_default()
@@ -55,7 +56,7 @@ fn main() -> Result<()> {
         Cmd::Ingest { file, session, json } => {
             let bytes = std::fs::read(&file)?;
             let t0 = Instant::now();
-            let log = bbl_ingest::ingest(&bytes, session, &Default::default())?;
+            let log = log_ingest::ingest(&bytes, session)?;
             eprintln!("ingested in {:.2?}", t0.elapsed());
             print_log_summary(&log);
             if let Some(p) = json {
@@ -66,7 +67,7 @@ fn main() -> Result<()> {
         Cmd::Analyze { file, session, json, pid_analyzer } => {
             let bytes = std::fs::read(&file)?;
             let t0 = Instant::now();
-            let log = bbl_ingest::ingest(&bytes, session, &Default::default())?;
+            let log = log_ingest::ingest(&bytes, session)?;
             let t1 = Instant::now();
             let mut opts = analysis::AnalysisOpts::default();
             if pid_analyzer {
@@ -133,6 +134,18 @@ fn print_log_summary(log: &domain::FlightLog) {
         log.gaps.len(),
         log.meta.warnings
     );
+    if !log.meta.msg_rates_hz.is_empty() {
+        let mut r: Vec<String> = log.meta.msg_rates_hz.iter().map(|(k, v)| format!("{k}={v:.0}")).collect();
+        r.sort();
+        println!("  msg rates Hz: {} | gyro_hr tracks: {} ({} batches)", r.join(" "), log.gyro_hr.len(), log.gyro_hr.iter().map(|t| t.batches.len()).sum::<usize>());
+    }
+    if let domain::Tune::Ap(t) = &log.tune_at_log {
+        let g = |n: &str| t.get(n).map(|v| format!("{v}")).unwrap_or("-".into());
+        println!("  ATC_RAT RLL P{} I{} D{} FLTD{} FLTT{} | PIT P{} I{} D{} | YAW P{} I{} D{} | INS_GYRO_FILTER {} | HNTCH en{} mode{} freq{} bw{} ref{} | LOG_BITMASK {} | BAT mask{} opt{}",
+            g("ATC_RAT_RLL_P"), g("ATC_RAT_RLL_I"), g("ATC_RAT_RLL_D"), g("ATC_RAT_RLL_FLTD"), g("ATC_RAT_RLL_FLTT"),
+            g("ATC_RAT_PIT_P"), g("ATC_RAT_PIT_I"), g("ATC_RAT_PIT_D"), g("ATC_RAT_YAW_P"), g("ATC_RAT_YAW_I"), g("ATC_RAT_YAW_D"),
+            g("INS_GYRO_FILTER"), g("INS_HNTCH_ENABLE"), g("INS_HNTCH_MODE"), g("INS_HNTCH_FREQ"), g("INS_HNTCH_BW"), g("INS_HNTCH_REF"), g("LOG_BITMASK"), g("INS_LOG_BAT_MASK"), g("INS_LOG_BAT_OPT"));
+    }
     if let domain::Tune::Bf(t) = &log.tune_at_log {
         for (k, name) in ["roll", "pitch", "yaw"].iter().enumerate() {
             let p = t.pids[k];

@@ -1,7 +1,9 @@
 //! Turns a [`FlightLog`] into step responses, spectra, spectrograms, noise
 //! peaks and a quality summary. Pure computation; parallel per axis.
 
+pub mod hr;
 pub mod peaks;
+pub mod predicted;
 pub mod quality;
 pub mod spectrogram;
 pub mod spectrum;
@@ -32,7 +34,10 @@ pub fn analyze(log: &FlightLog, opts: &AnalysisOpts, progress: impl Fn(f32) + Sy
     // Spectra/spectrograms default to the airborne part of the log so arming
     // spin-up and touchdown do not produce phantom peaks.
     let range = opts.range_s.or_else(|| quality::airborne_range(log));
-    let opts = AnalysisOpts { range_s: range, ..opts.clone() };
+    let mut opts = AnalysisOpts { range_s: range, ..opts.clone() };
+    if matches!(log.firmware, domain::Firmware::ArduCopter { .. }) && opts.step.min_input_dps == StepOpts::default().min_input_dps {
+        opts.step = StepOpts::ardupilot();
+    }
     let opts = &opts;
     let steps: Vec<_> = Axis::ALL
         .par_iter()
@@ -45,15 +50,36 @@ pub fn analyze(log: &FlightLog, opts: &AnalysisOpts, progress: impl Fn(f32) + Sy
         .iter()
         .flat_map(|a| kinds.iter().map(move |k| (*a, *k)))
         .collect();
-    let spectra: Vec<_> = jobs
+    let mut spectra: Vec<_> = jobs
         .par_iter()
-        .filter_map(|(a, k)| spectrum::spectrum(log, *a, *k, &opts.spectrum, opts.range_s))
+        .filter_map(|(a, k)| {
+            // High-rate batch tracks win over the uniform-grid series for gyro spectra.
+            if matches!(k, SpectrumKind::GyroRaw | SpectrumKind::GyroFilt) {
+                if let Some(track) = hr::track_for(log, *k) {
+                    return hr::spectrum_hr(track, *a, &opts.spectrum, opts.range_s);
+                }
+            }
+            spectrum::spectrum(log, *a, *k, &opts.spectrum, opts.range_s)
+        })
         .collect();
+    // ArduPilot: predicted post-filter spectrum from the logged filter parameters.
+    if let domain::Tune::Ap(t) = &log.tune_at_log {
+        let hover = log.meta.headers.get("ap.hover_thr").and_then(|v| v.parse::<f32>().ok());
+        let preds: Vec<_> = spectra
+            .iter()
+            .filter(|s| s.kind == SpectrumKind::GyroRaw)
+            .map(|pre| predicted::predict(pre, &predicted::chain_from_params(t, pre.fs_hz, hover, &[])))
+            .collect();
+        spectra.extend(preds);
+    }
     progress(0.6);
 
     let spectrograms: Vec<_> = Axis::ALL
         .par_iter()
         .filter_map(|&a| {
+            if let Some(track) = hr::track_for(log, SpectrumKind::GyroRaw).or_else(|| hr::track_for(log, SpectrumKind::GyroFilt)) {
+                return hr::spectrogram_hr(log, track, a, opts.spectrogram.max_hz);
+            }
             let kind = if log.axis(a).gyro_raw.is_some() {
                 SpectrumKind::GyroRaw
             } else {
@@ -66,6 +92,7 @@ pub fn analyze(log: &FlightLog, opts: &AnalysisOpts, progress: impl Fn(f32) + Sy
 
     let peaks: Vec<_> = spectra
         .iter()
+        .filter(|s| s.kind != SpectrumKind::Predicted)
         .flat_map(|s| peaks::find_peaks(s, &opts.peaks))
         .collect();
 

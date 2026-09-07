@@ -15,7 +15,7 @@ pub struct AppState {
     pub engine: Mutex<Option<session::SessionEngine>>,
     pub store: Mutex<Option<session::SessionStore>>,
     pub fc: Mutex<session::FcStatus>,
-    pub client: Mutex<Option<fc_msp::MspClient>>,
+    pub client: Mutex<Option<fc::Client>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -54,6 +54,8 @@ pub fn run() {
             wizard::fc_status,
             wizard::report_export,
             wizard::session_notes,
+            wizard::wizard_pid_strategy,
+            wizard::save_text_file,
             fc::fc_ports,
             fc::fc_connect,
             fc::fc_disconnect,
@@ -63,6 +65,8 @@ pub fn run() {
             fc::fc_preflight_fix,
             fc::fc_download_import,
             fc::fc_apply,
+            fc::fc_list_logs,
+            fc::fc_export_text,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

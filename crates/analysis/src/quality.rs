@@ -1,6 +1,6 @@
 //! Measured facts about a log that wizard guards evaluate.
 
-use domain::{FlightLog, LogQuality};
+use domain::{Firmware, FlightLog, LogQuality};
 
 /// First/last time the quad is airborne: throttle above 12 % sustained for 1 s,
 /// trimmed by 1 s on each side so arming spin-up and touchdown are excluded.
@@ -79,5 +79,11 @@ pub fn log_quality(log: &FlightLog) -> LogQuality {
         max_setpoint_per_axis: max_sp,
         step_segments_per_axis: [0; 3],
         gap_seconds: log.gaps.iter().map(|(a, b)| (b - a) as f64).sum(),
+        pid_rate_hz: log.meta.msg_rates_hz.get("PIDR").copied(),
+        max_pid_out: {
+            let m: Vec<f32> = log.axes.iter().map(|a| a.pid_sum.as_ref().map(|s| s.iter().fold(0f32, |x, v| x.max(v.abs()))).unwrap_or(0.0)).collect();
+            matches!(log.firmware, Firmware::ArduCopter { .. }).then(|| [m[0], m[1], m[2]])
+        },
+        gyro_hr_batches: log.gyro_hr.iter().map(|t| t.batches.len()).sum(),
     }
 }

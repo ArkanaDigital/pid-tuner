@@ -7,6 +7,7 @@
 pub mod cli;
 pub mod client;
 pub mod codec;
+pub mod fc_impl;
 pub mod layouts;
 pub mod transport;
 

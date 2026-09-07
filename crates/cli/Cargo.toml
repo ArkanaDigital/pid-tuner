@@ -12,6 +12,7 @@ path = "src/main.rs"
 domain = { workspace = true }
 dsp = { workspace = true }
 bbl-ingest = { workspace = true }
+log-ingest = { workspace = true }
 analysis = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }

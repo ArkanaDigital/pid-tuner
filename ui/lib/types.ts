@@ -132,6 +132,10 @@ export function paramValueText(v: ParamValue): string {
   return String(v.value);
 }
 
+export function isArduPilot(f: Firmware | null | undefined): boolean {
+  return f?.kind === "ardu_copter";
+}
+
 export function firmwareText(f: Firmware): string {
   if (f.kind === "betaflight") return `Betaflight ${f.version}`;
   if (f.kind === "ardu_copter") return `ArduCopter ${f.version}`;
@@ -210,6 +214,7 @@ export interface Session {
   firmware: Firmware | null;
   notes: string;
   report_file: string | null;
+  pid_strategy?: PidStrategy;
 }
 
 export interface SessionSnapshot {
@@ -229,9 +234,20 @@ export interface SessionSummary {
   craft_name: string | null;
 }
 
+export type FcKind = "msp" | "mavlink";
+export type ConnectKind = "auto" | "msp" | "mavlink";
+export type PidStrategy = "heuristic" | "autotune";
+
+export interface FcLogEntry {
+  id: number;
+  size: number;
+  time_utc: number | null;
+}
+
 export interface FcStatus {
   connected: boolean;
   port: string | null;
+  kind: FcKind | null;
   firmware: Firmware | null;
   armed: boolean;
   heartbeat_age_s: number;
@@ -242,6 +258,11 @@ export interface FcStatus {
   pid_logging_enabled: boolean | null;
   raw_gyro_logging_enabled: boolean | null;
   snapshot_taken: boolean;
+  // ArduPilot
+  log_bitmask: number | null;
+  batch_configured: boolean | null;
+  loop_rate_hz: number | null;
+  autotune_axes: number | null;
 }
 
 export interface PortInfo {

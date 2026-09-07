@@ -40,10 +40,10 @@ fn summarize(path: &str, log: &FlightLog) -> LogSummary {
 }
 
 #[tauri::command]
-pub async fn log_sessions(path: String) -> Result<Vec<bbl_ingest::SessionInfo>, String> {
+pub async fn log_sessions(path: String) -> Result<Vec<log_ingest::SessionInfo>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let bytes = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
-        Ok(bbl_ingest::list_sessions(&bytes))
+        Ok(log_ingest::list_sessions(&bytes))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -54,7 +54,7 @@ pub async fn log_open(state: State<'_, AppState>, path: String, session: usize) 
     let p = path.clone();
     let log = tauri::async_runtime::spawn_blocking(move || {
         let bytes = std::fs::read(&p).map_err(|e| format!("read {p}: {e}"))?;
-        bbl_ingest::ingest(&bytes, session, &Default::default()).map_err(|e| e.to_string())
+        log_ingest::ingest(&bytes, session).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -92,7 +92,7 @@ pub struct RecommendArgs {
 pub async fn log_recommend(state: State<'_, AppState>, args: RecommendArgs) -> Result<Vec<Recommendation>, String> {
     let log = get_log(&state, &args.id)?;
     let phase = if args.phase == "pids" { recommend::Phase::Pids } else { recommend::Phase::Filters };
-    Ok(recommend::recommend(&log.tune_at_log, &args.bundle, phase))
+    Ok(recommend::recommend_for_log(&log, &args.bundle, phase))
 }
 
 #[derive(Serialize)]

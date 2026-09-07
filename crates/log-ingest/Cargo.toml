@@ -1,0 +1,12 @@
+[package]
+name = "log-ingest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+domain = { workspace = true }
+bbl-ingest = { workspace = true }
+ap-ingest = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }

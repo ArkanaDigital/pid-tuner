@@ -71,9 +71,9 @@ pub fn render(s: &Session, bundles: &[(Flight, AnalysisBundle)], images: &[Repor
             ));
         }
         h.push_str("</table>");
-        let cli: Vec<String> = recs.iter().filter(|r| r.accepted).map(|r| format!("set {} = {}", r.param.name(), r.new)).collect();
-        if !cli.is_empty() {
-            h.push_str(&format!("<pre># Betaflight CLI\n{}\nsave</pre>", esc(&cli.join("\n"))));
+        let text = domain::fc::export_text_for(s.firmware.as_ref(), recs);
+        if !text.is_empty() {
+            h.push_str(&format!("<pre>{}</pre>", esc(&text)));
         }
     }
 

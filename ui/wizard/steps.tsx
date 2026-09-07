@@ -1,14 +1,50 @@
 import { useState } from "react";
-import { api, pickLogFile } from "../lib/api";
+import { api, pickLogFile, saveTextAs } from "../lib/api";
 import { run, useStore } from "../lib/store";
-import { AXES, STEP_FLIGHT, type AnalysisBundle, type ApplyPhase, type Flight, type SessionSnapshot, type Step } from "../lib/types";
+import { AXES, STEP_FLIGHT, isArduPilot, type AnalysisBundle, type ApplyPhase, type Flight, type PidStrategy, type SessionSnapshot, type Step } from "../lib/types";
 import StepResponseChart from "../charts/StepResponseChart";
 import SpectrumChart from "../charts/SpectrumChart";
 import SpectrogramCanvas from "../charts/SpectrogramCanvas";
-import RecsTable, { cliText } from "./RecsTable";
+import RecsTable, { paramText } from "./RecsTable";
 import { ConnectStep, DownloadFromFlash, FcApplyButton, PreflightStep } from "./fcsteps";
 
-const FLIGHT_PROTOCOL: Record<Flight, { title: string; steps: string[]; note: string }> = {
+type Protocol = { title: string; steps: string[]; note: string };
+
+/** ArduPilot Copter protocol: AltHold hover for the spectra, Stabilize stick steps for the step response. */
+const AP_FLIGHT_PROTOCOL: Record<Flight, Protocol> = {
+  a: {
+    title: "Flight A — noise / filter data (ArduCopter)",
+    steps: [
+      "Props on, battery fresh, GPS not required. Arm in AltHold (or Loiter) in a safe open area.",
+      "Hover steadily for 30 seconds at hover throttle (stick centred). No pitch/roll input.",
+      "Then 20 seconds of gentle rocking (small roll/pitch, throttle 30–70 %) so the spectrogram covers a throttle range.",
+      "Land, disarm. Wait ~5 s before power-off so the .bin log is closed.",
+    ],
+    note: "Needs LOG_BITMASK bits 0+12+19 and the IMU batch sampler (INS_LOG_BAT_MASK=1, INS_LOG_BAT_OPT=4) — Preflight sets them. The gyro spectrum comes from ISBH/ISBD batches; ≥ 20 batches are required.",
+  },
+  b: {
+    title: "Flight B — step response data (ArduCopter)",
+    steps: [
+      "Take off in Stabilize (rate response is what we measure; AltHold/Loiter add position loops). Hover 5 s.",
+      "Roll: sharp stick snap left, hold ½ s, centre, pause 1 s. Repeat right. Do 15 pairs.",
+      "Pitch: same pattern forward / back, 15 pairs.",
+      "Yaw: same pattern, 5 pairs.",
+      "One axis at a time. Land and disarm.",
+    ],
+    note: "ATC_INPUT_TC shapes the pilot input, so the target seen by the rate loop (PIDx.Tar) is already filtered — snaps ≥ 60 °/s on roll/pitch, ≥ 40 °/s on yaw are still needed. ≥ 30 segments per axis for a trustworthy curve.",
+  },
+  c: {
+    title: "Flight C — verification (ArduCopter)",
+    steps: [
+      "Heuristic path: fly the same Stabilize protocol as Flight B with the new gains.",
+      "AUTOTUNE path: fly AUTOTUNE (AUTOTUNE_AXES / AUTOTUNE_AGGR as set), let it finish, land and disarm WITHOUT touching the sticks so the gains are saved — then fly the Flight B protocol once more.",
+      "Land and disarm.",
+    ],
+    note: "The Import C guard checks ATC_RAT_*_P/D actually changed and D did not end at AUTOTUNE_MIN_D (a failed autotune).",
+  },
+};
+
+const FLIGHT_PROTOCOL: Record<Flight, Protocol> = {
   a: {
     title: "Flight A — noise / filter data",
     steps: [
@@ -77,7 +113,8 @@ export function StepPanel({ snap }: { snap: SessionSnapshot }) {
 
 function FlightStep({ snap, which }: { snap: SessionSnapshot; which: Flight }) {
   const s = useStore();
-  const p = FLIGHT_PROTOCOL[which];
+  const ap = isArduPilot(snap.session.firmware ?? s.fc?.firmware);
+  const p = (ap ? AP_FLIGHT_PROTOCOL : FLIGHT_PROTOCOL)[which];
   const done = !!snap.session.flight_done[which];
   async function toggle() {
     const n = await run("Saving…", () => api.flightDone(which, !done));
@@ -124,7 +161,10 @@ function ImportStep({ snap, which }: { snap: SessionSnapshot; which: Flight }) {
   return (
     <div className="panel">
       <h2>Import log {which.toUpperCase()}</h2>
-      <p>Pull the .BBL/.BFL from the flash or SD card (Betaflight Configurator → Blackbox → Save flash to file) or use the file the pilot sent you.</p>
+      <p>
+        Betaflight: pull the .BBL/.BFL from the flash or SD card (Configurator → Blackbox → Save flash to file).
+        ArduPilot: copy the .BIN from the SD card (fastest) or download it over MAVLink below. Or use the file the pilot sent you.
+      </p>
       {snap.session.mode === "online" && <DownloadFromFlash which={which} />}
       <div className="row">
         <button className="primary" onClick={pick} disabled={!!s.busy}>{rec ? "Replace log…" : "Choose log file…"}</button>
@@ -239,31 +279,62 @@ function AnalysisStep({ snap, which, phase }: { snap: SessionSnapshot; which: Fl
   );
 }
 
+function PidStrategyToggle({ snap }: { snap: SessionSnapshot }) {
+  const s = useStore();
+  const cur: PidStrategy = snap.session.pid_strategy ?? "heuristic";
+  async function set(v: PidStrategy) {
+    const n = await run("Saving…", () => api.pidStrategy(v));
+    if (n) s.set({ snap: n });
+  }
+  return (
+    <div className="notice">
+      <b>ArduCopter PID path:</b>{" "}
+      <label className="check"><input type="radio" checked={cur === "heuristic"} onChange={() => set("heuristic")} /> our step-response heuristics (write ATC_RAT_* below)</label>{" "}
+      <label className="check"><input type="radio" checked={cur === "autotune"} onChange={() => set("autotune")} /> pilot flies AUTOTUNE, we verify before/after</label>
+      {cur === "autotune" && <div className="muted">Skip the write below; Flight C must be an AUTOTUNE flight saved by disarming with sticks centred. AUTOTUNE_AGGR 0.05–0.10, AUTOTUNE_AXES selects the axes.</div>}
+    </div>
+  );
+}
+
 function ApplyStep({ snap, phase }: { snap: SessionSnapshot; phase: ApplyPhase }) {
   const s = useStore();
   const recs = phase === "filters" ? snap.session.recs_filters : snap.session.recs_pids;
   const applied = [...snap.session.applies].reverse().find((a) => a.phase === phase);
-  const cli = cliText(recs);
+  const firmware = snap.session.firmware ?? s.fc?.firmware ?? null;
+  const ap = isArduPilot(firmware);
+  const cli = paramText(recs, firmware);
   const [copied, setCopied] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
   async function copy() {
     await navigator.clipboard.writeText(cli);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }
+  async function saveParam() {
+    const p = await saveTextAs(`pidtuner_${phase}.${ap ? "param" : "txt"}`, cli);
+    if (p) setSaved(p);
+  }
   async function confirm() {
-    const n = await run("Recording…", () => api.applyConfirm(phase, snap.session.mode === "online" ? "msp" : "cli-manual"));
+    const n = await run("Recording…", () => api.applyConfirm(phase, snap.session.mode === "online" ? (s.fc?.kind ?? "msp") : ap ? "param-manual" : "cli-manual"));
     if (n) s.set({ snap: n });
   }
   return (
     <div className="panel">
       <h2>{phase === "filters" ? "Apply filter settings" : "Apply PID settings"}</h2>
+      {ap && phase === "pids" && <PidStrategyToggle snap={snap} />}
       <RecsTable phase={phase} recs={recs} editable={!applied} />
       {snap.session.mode === "online" && cli && !applied && <FcApplyButton phase={phase} />}
       {cli ? (
         <>
           <div className="row">
-            <button onClick={copy}>{copied ? "Copied ✓" : "Copy CLI"}</button>
-            <span className="muted">Paste into Betaflight Configurator → CLI. The final <code>save</code> reboots the FC.</span>
+            <button onClick={copy}>{copied ? "Copied ✓" : ap ? "Copy parameters" : "Copy CLI"}</button>
+            <button onClick={saveParam}>{ap ? "Save .param file…" : "Save CLI text…"}</button>
+            {saved && <span className="muted">Saved: {saved}</span>}
+            <span className="muted">
+              {ap
+                ? "Load in Mission Planner (Config → Full Parameter List → Load from file → Write Params) or QGC. INS_HNTCH_ENABLE needs a reboot before the other INS_HNTCH_* values can be written."
+                : <>Paste into Betaflight Configurator → CLI. The final <code>save</code> reboots the FC.</>}
+            </span>
           </div>
           <pre className="cli">{cli}</pre>
         </>
