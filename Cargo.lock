@@ -40,7 +40,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "analysis"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "approx",
  "domain",
@@ -117,7 +117,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "ap-ingest"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "blake3",
  "domain",
@@ -328,7 +328,7 @@ checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "bbl-ingest"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "blackbox-log",
  "blake3",
@@ -1056,7 +1056,7 @@ dependencies = [
 
 [[package]]
 name = "domain"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "serde",
  "thiserror 2.0.20",
@@ -1074,7 +1074,7 @@ dependencies = [
 
 [[package]]
 name = "dsp"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "approx",
  "num-complex",
@@ -1233,7 +1233,7 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "fc-mavlink"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "domain",
  "mavlink",
@@ -1246,7 +1246,7 @@ dependencies = [
 
 [[package]]
 name = "fc-msp"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "domain",
  "serde",
@@ -2360,7 +2360,7 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "log-ingest"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "ap-ingest",
  "bbl-ingest",
@@ -2956,7 +2956,7 @@ dependencies = [
 
 [[package]]
 name = "pid-tuner"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "analysis",
  "bbl-ingest",
@@ -2979,7 +2979,7 @@ dependencies = [
 
 [[package]]
 name = "pidtool"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "analysis",
  "anyhow",
@@ -3256,7 +3256,7 @@ dependencies = [
 
 [[package]]
 name = "recommend"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "domain",
  "dsp",
@@ -3714,7 +3714,7 @@ dependencies = [
 
 [[package]]
 name = "session"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "analysis",
  "ap-ingest",
