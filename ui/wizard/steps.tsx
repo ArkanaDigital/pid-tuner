@@ -7,6 +7,7 @@ import SpectrumChart from "../charts/SpectrumChart";
 import SpectrogramCanvas from "../charts/SpectrogramCanvas";
 import RecsTable, { paramText } from "./RecsTable";
 import { ConnectStep, DownloadFromFlash, FcApplyButton, PreflightStep } from "./fcsteps";
+import AnomalyList from "./AnomalyList";
 
 type Protocol = { title: string; steps: string[]; note: string };
 
@@ -182,6 +183,7 @@ function ImportStep({ snap, which }: { snap: SessionSnapshot; which: Flight }) {
         </div>
       )}
       {rec && rec.warnings.length > 0 && <div className="notice">{rec.warnings.join(" · ")}</div>}
+      {bundle && <AnomalyList list={bundle.anomalies} compact />}
       {bundle && which === "a" && <SpectrumPreview bundle={bundle} />}
       {bundle && which !== "a" && <StepPreview bundle={bundle} />}
     </div>

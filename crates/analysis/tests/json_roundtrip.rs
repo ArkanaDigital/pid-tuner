@@ -44,6 +44,7 @@ fn bundle_json_roundtrip_on_hover_log() {
     }
     let nulls = count_null(&v);
     let expected_nulls = b.steps.iter().filter(|s| s.latency_ms.is_nan()).count() + b.steps.iter().filter(|s| s.settle_ms.is_none()).count()
-        + usize::from(b.quality.airborne_range_s.is_none()) + usize::from(b.quality.pid_rate_hz.is_none()) + usize::from(b.quality.max_pid_out.is_none());
+        + usize::from(b.quality.airborne_range_s.is_none()) + usize::from(b.quality.pid_rate_hz.is_none()) + usize::from(b.quality.max_pid_out.is_none())
+        + b.anomalies.iter().map(|a| usize::from(a.axis.is_none()) + usize::from(a.motor.is_none())).sum::<usize>();
     assert!(nulls <= expected_nulls, "unexpected nulls in bundle JSON: {nulls} > {expected_nulls}");
 }

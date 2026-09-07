@@ -6,8 +6,9 @@ import StepResponseChart from "./charts/StepResponseChart";
 import { StepControls } from "./wizard/steps";
 import SpectrumChart from "./charts/SpectrumChart";
 import SpectrogramCanvas from "./charts/SpectrogramCanvas";
+import AnomalyList, { anomalySummary } from "./wizard/AnomalyList";
 
-type Tab = "step" | "spectrum" | "spectrogram" | "recs";
+type Tab = "step" | "spectrum" | "spectrogram" | "recs" | "anomalies";
 
 export default function QuickLook() {
   const s = useStore();
@@ -89,15 +90,19 @@ export default function QuickLook() {
       </header>
 
       <nav className="tabs">
-        {(["step", "spectrum", "spectrogram", "recs"] as Tab[]).map((t) => (
-          <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)} disabled={!b}>
-            {t === "step" ? "Step Response" : t === "spectrum" ? "Full Spectrum" : t === "spectrogram" ? "Throttle Spectrogram" : `Recommendations (${s.recs.length})`}
+        {(["step", "spectrum", "spectrogram", "recs", "anomalies"] as Tab[]).map((t) => (
+          <button key={t} className={`${tab === t ? "active" : ""} ${t === "anomalies" && b?.anomalies.some((a) => a.severity === "critical") ? "warn" : ""}`} onClick={() => setTab(t)} disabled={!b}>
+            {t === "step" ? "Step Response" : t === "spectrum" ? "Full Spectrum" : t === "spectrogram" ? "Throttle Spectrogram" : t === "recs" ? `Recommendations (${s.recs.length})` : `Anomalies${b && b.anomalies.length ? ` (${anomalySummary(b.anomalies)})` : ""}`}
           </button>
         ))}
       </nav>
 
       <main className="content">
-        {!b && !s.busy && <div className="empty">Open a Betaflight blackbox file (.BBL / .BFL) to analyze it.</div>}
+        {!b && !s.busy && <div className="empty">Open a Betaflight blackbox (.BBL / .BFL) or ArduPilot DataFlash (.BIN) log to analyze it.</div>}
+        {b && b.anomalies.some((a) => a.severity === "critical") && tab !== "anomalies" && (
+          <div className="notice bad">Critical anomalies found ({anomalySummary(b.anomalies)}) — see the Anomalies tab.</div>
+        )}
+        {b && tab === "anomalies" && <AnomalyList list={b.anomalies} />}
         {b && tab === "step" && (
           <section>
             <h2>Step Response Functions</h2>

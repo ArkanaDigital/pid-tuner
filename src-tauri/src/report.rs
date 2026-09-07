@@ -46,6 +46,19 @@ pub fn render(s: &Session, bundles: &[(Flight, AnalysisBundle)], images: &[Repor
     }
     h.push_str("</table>");
 
+    if bundles.iter().any(|(_, b)| !b.anomalies.is_empty()) {
+        h.push_str("<h2>Anomalies</h2><table><tr><th>Flight</th><th>Severity</th><th>Type</th><th>Time</th><th>Detail</th></tr>");
+        for (f, b) in bundles {
+            for a in &b.anomalies {
+                h.push_str(&format!(
+                    "<tr><td>{f:?}</td><td>{:?}</td><td>{}</td><td>{:.1}–{:.1} s</td><td>{}</td></tr>",
+                    a.severity, a.kind.title(), a.t_start_s, a.t_end_s, esc(&a.detail)
+                ));
+            }
+        }
+        h.push_str("</table>");
+    }
+
     h.push_str("<h2>Noise peaks</h2><table><tr><th>Flight</th><th>Axis</th><th>Signal</th><th>Frequency</th><th>Level</th><th>Band</th></tr>");
     for (f, b) in bundles {
         for p in &b.peaks {

@@ -1,6 +1,7 @@
 //! Turns a [`FlightLog`] into step responses, spectra, spectrograms, noise
 //! peaks and a quality summary. Pure computation; parallel per axis.
 
+pub mod anomaly;
 pub mod hr;
 pub mod peaks;
 pub mod predicted;
@@ -13,6 +14,7 @@ use domain::{AnalysisBundle, Axis, FlightLog, SpectrumKind};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
+pub use anomaly::AnomalyOpts;
 pub use peaks::PeakOpts;
 pub use spectrogram::SpectrogramOpts;
 pub use spectrum::{SpectrumMode, SpectrumOpts};
@@ -24,6 +26,7 @@ pub struct AnalysisOpts {
     pub spectrum: SpectrumOpts,
     pub spectrogram: SpectrogramOpts,
     pub peaks: PeakOpts,
+    pub anomaly: AnomalyOpts,
     /// Optional time range (seconds) to restrict spectrum/spectrogram analysis.
     pub range_s: Option<(f32, f32)>,
 }
@@ -102,6 +105,7 @@ pub fn analyze(log: &FlightLog, opts: &AnalysisOpts, progress: impl Fn(f32) + Sy
     }
     progress(1.0);
 
+    let anomalies = anomaly::detect(log, quality.airborne_range_s, &opts.anomaly);
     AnalysisBundle {
         log: log.id.clone(),
         quality,
@@ -109,6 +113,7 @@ pub fn analyze(log: &FlightLog, opts: &AnalysisOpts, progress: impl Fn(f32) + Sy
         spectra,
         spectrograms,
         peaks,
+        anomalies,
     }
 }
 

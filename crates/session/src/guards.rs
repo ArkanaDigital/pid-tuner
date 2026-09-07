@@ -235,6 +235,22 @@ fn saturation_guard(r: &FlightRecord) -> GuardOutcome {
     }
 }
 
+/// Critical anomalies (desync, yaw spin, reversed control, heavy vibration,
+/// big log gaps) make the log unusable for tuning and point at a hardware
+/// problem the pilot must fix first. Warnings are listed but do not block.
+fn anomaly_guard(r: &FlightRecord) -> GuardOutcome {
+    let crit: Vec<&Anomaly> = r.anomalies.iter().filter(|a| a.severity == Severity::Critical).collect();
+    if crit.is_empty() {
+        return pass();
+    }
+    let list: Vec<String> = crit.iter().take(4).map(|a| format!("{} at {:.1} s: {}", a.kind.title(), a.t_start_s, a.detail)).collect();
+    let more = if crit.len() > 4 { format!(" (+{} more)", crit.len() - 4) } else { String::new() };
+    fail(
+        format!("{} critical anomal{} in this log — {}{}", crit.len(), if crit.len() == 1 { "y" } else { "ies" }, list.join(" · "), more),
+        Some("Fix the hardware issue (motor/ESC, props, orientation, logging device) and re-fly. Override only if the event is outside the part of the flight you are tuning on."),
+    )
+}
+
 fn steps_guard(r: &FlightRecord) -> GuardOutcome {
     let s = r.quality.step_segments_per_axis;
     let ms = r.quality.max_setpoint_per_axis;
@@ -562,6 +578,7 @@ fn defs(step: Step) -> Vec<GuardDef> {
         Step::FlightA => vec![g!("flight_done", "Flight A completed", false, flight_done(Flight::A))],
         Step::ImportA => vec![
             g!("imported", "Log imported", false, log_imported(Flight::A)),
+            g!("anomalies", "No critical anomalies (desync, spin, reversed control…)", true, |c| record(c, Flight::A).map(anomaly_guard).unwrap_or_else(|| action("Import first."))),
             g!("log_rate", "Log rate ≥ 2 kHz", true, Fw::Bf, |c| record(c, Flight::A).map(log_rate_guard).unwrap_or_else(|| action("Import first."))),
             g!("duration", "≥ 40 s of data", true, |c| record(c, Flight::A).map(|r| duration_guard(r, 40.0)).unwrap_or_else(|| action("Import first."))),
             g!("raw_gyro", "Unfiltered gyro present", true, Fw::Bf, |c| record(c, Flight::A).map(raw_gyro_guard).unwrap_or_else(|| action("Import first."))),
@@ -579,6 +596,7 @@ fn defs(step: Step) -> Vec<GuardDef> {
         Step::FlightB => vec![g!("flight_done", "Flight B completed", false, flight_done(Flight::B))],
         Step::ImportB => vec![
             g!("imported", "Log imported", false, log_imported(Flight::B)),
+            g!("anomalies", "No critical anomalies (desync, spin, reversed control…)", true, |c| record(c, Flight::B).map(anomaly_guard).unwrap_or_else(|| action("Import first."))),
             g!("log_rate", "Log rate ≥ 1 kHz", true, Fw::Bf, |c| record(c, Flight::B).map(|r| if r.quality.fs_hz >= 950.0 { pass() } else { log_rate_guard(r) }).unwrap_or_else(|| action("Import first."))),
             g!("ap_pid_rate", "PIDx logged at loop rate", true, Fw::Ap, |c| record(c, Flight::B).map(ap_pid_rate_guard).unwrap_or_else(|| action("Import first."))),
             g!("duration", "≥ 30 s of data", true, |c| record(c, Flight::B).map(|r| duration_guard(r, 30.0)).unwrap_or_else(|| action("Import first."))),
@@ -596,6 +614,7 @@ fn defs(step: Step) -> Vec<GuardDef> {
         Step::FlightC => vec![g!("flight_done", "Verification flight completed", false, flight_done(Flight::C))],
         Step::ImportC => vec![
             g!("imported", "Log imported", false, log_imported(Flight::C)),
+            g!("anomalies", "No critical anomalies (desync, spin, reversed control…)", true, |c| record(c, Flight::C).map(anomaly_guard).unwrap_or_else(|| action("Import first."))),
             g!("ap_pid_rate", "PIDx logged at loop rate", true, Fw::Ap, |c| record(c, Flight::C).map(ap_pid_rate_guard).unwrap_or_else(|| action("Import first."))),
             g!("steps", "Enough stick steps per axis", true, Fw::Bf, |c| record(c, Flight::C).map(steps_guard).unwrap_or_else(|| action("Import first."))),
             g!("ap_steps", "Enough stick steps per axis", true, Fw::Ap, |c| record(c, Flight::C).map(ap_steps_guard).unwrap_or_else(|| action("Import first."))),

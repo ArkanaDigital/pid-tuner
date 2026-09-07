@@ -142,6 +142,9 @@ pub struct FlightRecord {
     pub duration_s: f64,
     pub quality: LogQuality,
     pub warnings: Vec<String>,
+    /// Anomalies found by the analysis (desync, clipping, oscillation, …).
+    #[serde(default)]
+    pub anomalies: Vec<Anomaly>,
     /// Tune parsed from the log header.
     pub tune: Tune,
     /// Cached analysis bundle path (relative to the session dir).

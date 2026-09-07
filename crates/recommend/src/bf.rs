@@ -309,7 +309,7 @@ mod tests {
         AnalysisBundle {
             log: LogId("x".into()), quality: LogQuality::default(),
             steps: vec![step(Axis::Roll, 1.05), step(Axis::Pitch, 1.25), step(Axis::Yaw, 1.0)],
-            spectra: vec![], spectrograms: vec![], peaks: vec![],
+            spectra: vec![], spectrograms: vec![], peaks: vec![], anomalies: vec![],
         }
     }
 

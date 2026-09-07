@@ -292,6 +292,85 @@ pub struct AnalysisBundle {
     pub spectra: Vec<Spectrum>,
     pub spectrograms: Vec<Spectrogram>,
     pub peaks: Vec<NoisePeak>,
+    /// Flight anomalies found in the log (desync, clipping, oscillation, …).
+    #[serde(default)]
+    pub anomalies: Vec<Anomaly>,
+}
+
+// ---------------------------------------------------------------------------
+// Anomalies
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AnomalyKind {
+    /// One motor pinned at maximum while its eRPM collapsed (or, without RPM
+    /// telemetry, while the others fell and the quad rolled/pitched hard).
+    MotorDesync,
+    /// A motor held at 100 % for a sustained time: no control authority left.
+    MotorSaturation,
+    /// A motor held at the idle floor while airborne: authority lost on the low side.
+    MotorFloor,
+    /// Gyro reading at the sensor range limit (±2000 °/s class).
+    GyroClipping,
+    /// Sustained un-commanded oscillation of the gyro around the setpoint.
+    Oscillation,
+    /// Hover motor outputs differ a lot between motors (CG / bent prop / weak motor).
+    MotorImbalance,
+    /// One motor's eRPM in hover deviates from the others (prop / bearing / ESC).
+    RpmImbalance,
+    /// eRPM telemetry reads zero while the motor is commanded on.
+    RpmDropout,
+    /// Missing log frames (SD/flash too slow, logging rate too high).
+    LogGap,
+    /// Un-commanded yaw rotation above 1000 °/s (yaw spin / crash).
+    YawSpin,
+    /// Gyro moves against the setpoint: wrong board orientation or motor direction.
+    ControlReversed,
+    /// High-frequency raw gyro energy far above normal (bearing / loose prop / frame).
+    Vibration,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Severity {
+    Info,
+    Warning,
+    Critical,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Anomaly {
+    pub kind: AnomalyKind,
+    pub severity: Severity,
+    /// Seconds from log start.
+    pub t_start_s: f32,
+    pub t_end_s: f32,
+    pub axis: Option<Axis>,
+    /// Motor index (0-based) when the finding concerns one motor.
+    pub motor: Option<usize>,
+    /// Kind-specific magnitude (°/s, %, Hz, …) — see `detail` for the unit.
+    pub value: f32,
+    pub detail: String,
+}
+
+impl AnomalyKind {
+    pub fn title(self) -> &'static str {
+        match self {
+            AnomalyKind::MotorDesync => "Motor desync",
+            AnomalyKind::MotorSaturation => "Motor saturation",
+            AnomalyKind::MotorFloor => "Motor at idle floor",
+            AnomalyKind::GyroClipping => "Gyro clipping",
+            AnomalyKind::Oscillation => "Oscillation",
+            AnomalyKind::MotorImbalance => "Motor imbalance",
+            AnomalyKind::RpmImbalance => "RPM imbalance",
+            AnomalyKind::RpmDropout => "RPM telemetry dropout",
+            AnomalyKind::LogGap => "Log gap",
+            AnomalyKind::YawSpin => "Yaw spin",
+            AnomalyKind::ControlReversed => "Control reversed",
+            AnomalyKind::Vibration => "Vibration",
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

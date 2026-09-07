@@ -67,6 +67,37 @@ export interface LogQuality {
   gap_seconds: number;
 }
 
+export type AnomalyKind =
+  | "motor_desync" | "motor_saturation" | "motor_floor" | "gyro_clipping" | "oscillation" | "motor_imbalance"
+  | "rpm_imbalance" | "rpm_dropout" | "log_gap" | "yaw_spin" | "control_reversed" | "vibration";
+export type Severity = "info" | "warning" | "critical";
+
+export interface Anomaly {
+  kind: AnomalyKind;
+  severity: Severity;
+  t_start_s: number;
+  t_end_s: number;
+  axis: Axis | null;
+  motor: number | null;
+  value: number;
+  detail: string;
+}
+
+export const ANOMALY_TITLE: Record<AnomalyKind, string> = {
+  motor_desync: "Motor desync",
+  motor_saturation: "Motor saturation",
+  motor_floor: "Motor at idle floor",
+  gyro_clipping: "Gyro clipping",
+  oscillation: "Oscillation",
+  motor_imbalance: "Motor imbalance",
+  rpm_imbalance: "RPM imbalance",
+  rpm_dropout: "RPM telemetry dropout",
+  log_gap: "Log gap",
+  yaw_spin: "Yaw spin",
+  control_reversed: "Control reversed",
+  vibration: "Vibration",
+};
+
 export interface AnalysisBundle {
   log: string;
   quality: LogQuality;
@@ -74,6 +105,7 @@ export interface AnalysisBundle {
   spectra: Spectrum[];
   spectrograms: Spectrogram[];
   peaks: NoisePeak[];
+  anomalies: Anomaly[];
 }
 
 export type ParamValue =
@@ -184,6 +216,7 @@ export interface FlightRecord {
   duration_s: number;
   quality: LogQuality;
   warnings: string[];
+  anomalies?: Anomaly[];
   tune: unknown;
   bundle_file: string;
 }

@@ -240,7 +240,7 @@ mod tests {
     }
 
     fn bundle(peaks: Vec<NoisePeak>, steps: Vec<StepResponse>) -> AnalysisBundle {
-        AnalysisBundle { log: LogId("x".into()), quality: LogQuality { max_pid_out: Some([0.3, 0.3, 0.2]), has_pid_terms: true, ..Default::default() }, steps, spectra: vec![], spectrograms: vec![], peaks }
+        AnalysisBundle { log: LogId("x".into()), quality: LogQuality { max_pid_out: Some([0.3, 0.3, 0.2]), has_pid_terms: true, ..Default::default() }, steps, spectra: vec![], spectrograms: vec![], peaks, anomalies: vec![] }
     }
 
     fn step(axis: Axis, overshoot: f32, latency_ms: f32, ss: f32) -> StepResponse {

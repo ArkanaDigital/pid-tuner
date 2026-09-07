@@ -66,6 +66,24 @@ Every ArduPilot-derived number is cited to its source file/symbol in `crates/dom
 generated with pymavlink (`fixtures/ap/*.golden.json`). Not yet validated on real hardware — a loop-rate
 log from an F4/F7 quad with the settings above is the next fixture (`fixtures/ap/copter_hw_loop_rate.bin`).
 
+## Anomaly detection
+
+Every import (and Quick look) scans the airborne part of the log and lists what it finds, with time
+stamps; critical findings block the wizard until overridden with a reason:
+
+| Finding | How it is detected |
+|---|---|
+| Motor desync (critical) | a motor pinned at 100 % ≥ 100 ms while its eRPM collapses below 40 % of the others; without RPM telemetry: the other motors drop below 60 % and the quad rolls/pitches > 300 °/s |
+| Motor saturation / idle floor | a motor at 100 % (or at the idle floor while others are high) for ≥ 100 ms |
+| Gyro clipping | \|gyro\| ≥ 1950 °/s (sensor range limit) |
+| Oscillation | (gyro − setpoint) RMS ≥ 40 °/s over 0.5 s with < 25 °/s of stick input; frequency from zero crossings, classed slow / P-D / D-noise |
+| Yaw spin (critical) | \|yaw gyro\| ≥ 1000 °/s for ≥ 200 ms with little yaw stick |
+| Control reversed (critical) | gyro moves against the setpoint under strong stick input (board orientation / motor direction) |
+| Motor imbalance | hover motor means spread ≥ 15 % |
+| RPM imbalance / dropout | eRPM per unit of command deviates ≥ 15 % from the others; eRPM 0 while commanded |
+| Vibration | high-frequency raw gyro RMS ≥ 40 °/s |
+| Log gap | missing frames ≥ 20 ms (critical ≥ 0.5 s or > 1 s total) |
+
 ## License
 
 GPL-3.0-or-later. See `NOTICES.md` for the projects this builds on.

@@ -103,6 +103,12 @@ fn main() -> Result<()> {
                     p.band
                 );
             }
+            if !bundle.anomalies.is_empty() {
+                println!("Anomalies:");
+                for a in &bundle.anomalies {
+                    println!("  {:<8} {:<22} {:>7.2}–{:<7.2} s  {}", format!("{:?}", a.severity).to_uppercase(), a.kind.title(), a.t_start_s, a.t_end_s, a.detail);
+                }
+            }
             let q = &bundle.quality;
             println!(
                 "Quality: fs={:.0} Hz dur={:.1} s raw_gyro={} pid_terms={} hover={:.1} s @{:.0}% airborne={:?} sat={:.2}% gaps={:.2} s max_sp={:?}",

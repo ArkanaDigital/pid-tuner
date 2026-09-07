@@ -150,6 +150,7 @@ impl SessionEngine {
                 duration_s: log.duration_s(),
                 quality: bundle.quality.clone(),
                 warnings: log.meta.warnings.clone(),
+                anomalies: bundle.anomalies.clone(),
                 tune: log.tune_at_log.clone(),
                 bundle_file,
             },
@@ -284,6 +285,7 @@ mod tests {
             spectra: vec![],
             spectrograms: vec![],
             peaks: vec![],
+            anomalies: vec![],
         };
         (log, bundle)
     }
