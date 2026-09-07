@@ -12,4 +12,6 @@ rayon = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+log-ingest = { workspace = true }
+serde_json = { workspace = true }
 approx = { workspace = true }

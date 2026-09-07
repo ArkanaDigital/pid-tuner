@@ -24,8 +24,8 @@ export const api = {
   sessions: (path: string) => invoke<SessionInfo[]>("log_sessions", { path }),
   open: (path: string, session: number) => invoke<LogSummary>("log_open", { path, session }),
   analyze: (id: string, pidAnalyzer = false) => invoke<AnalysisBundle>("log_analyze", { id, pidAnalyzer }),
-  recommend: (id: string, bundle: AnalysisBundle, phase: "filters" | "pids") =>
-    invoke<Recommendation[]>("log_recommend", { args: { id, bundle, phase } }),
+  recommend: (id: string, _bundle: AnalysisBundle, phase: "filters" | "pids") =>
+    invoke<Recommendation[]>("log_recommend", { args: { id, phase } }),
   seriesWindow: (id: string, series: string, axis: number, t0: number, t1: number, pxWidth: number) =>
     invoke<{ x: number[]; y: number[] }>("series_window", { id, series, axis, t0, t1, pxWidth }),
 

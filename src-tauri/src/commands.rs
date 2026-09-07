@@ -70,7 +70,7 @@ fn get_log(state: &State<'_, AppState>, id: &str) -> Result<Arc<FlightLog>, Stri
 #[tauri::command]
 pub async fn log_analyze(state: State<'_, AppState>, id: String, pid_analyzer: bool) -> Result<AnalysisBundle, String> {
     let log = get_log(&state, &id)?;
-    tauri::async_runtime::spawn_blocking(move || {
+    let bundle = tauri::async_runtime::spawn_blocking(move || {
         let mut opts = analysis::AnalysisOpts::default();
         if pid_analyzer {
             opts.step = analysis::StepOpts::pid_analyzer();
@@ -78,21 +78,25 @@ pub async fn log_analyze(state: State<'_, AppState>, id: String, pid_analyzer: b
         analysis::analyze(&log, &opts, |_| {})
     })
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    // Keep the bundle server-side: NaN/inf (e.g. latency with zero step segments)
+    // become `null` in JSON and cannot round-trip through the UI.
+    state.bundles.lock().unwrap().insert(id, Arc::new(bundle.clone()));
+    Ok(bundle)
 }
 
 #[derive(Deserialize)]
 pub struct RecommendArgs {
     pub id: String,
-    pub bundle: AnalysisBundle,
     pub phase: String,
 }
 
 #[tauri::command]
 pub async fn log_recommend(state: State<'_, AppState>, args: RecommendArgs) -> Result<Vec<Recommendation>, String> {
     let log = get_log(&state, &args.id)?;
+    let bundle = state.bundles.lock().unwrap().get(&args.id).cloned().ok_or_else(|| format!("analysis for {} not cached — run log_analyze first", args.id))?;
     let phase = if args.phase == "pids" { recommend::Phase::Pids } else { recommend::Phase::Filters };
-    Ok(recommend::recommend_for_log(&log, &args.bundle, phase))
+    Ok(recommend::recommend_for_log(&log, &bundle, phase))
 }
 
 #[derive(Serialize)]

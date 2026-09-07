@@ -12,6 +12,7 @@ use tauri::Manager;
 #[derive(Default)]
 pub struct AppState {
     pub logs: Mutex<HashMap<String, Arc<domain::FlightLog>>>,
+    pub bundles: Mutex<HashMap<String, Arc<domain::AnalysisBundle>>>,
     pub engine: Mutex<Option<session::SessionEngine>>,
     pub store: Mutex<Option<session::SessionStore>>,
     pub fc: Mutex<session::FcStatus>,

@@ -189,7 +189,8 @@ pub struct StepResponse {
     pub rejected: usize,
     /// Peak of mean response inside the first 150 ms (1.0 = no overshoot).
     pub overshoot: f32,
-    /// Time (ms) at which the mean first crosses 0.5.
+    /// Time (ms) at which the mean first crosses 0.5 (NaN when no segments; serialised as null).
+    #[serde(with = "nan_f32")]
     pub latency_ms: f32,
     /// Time (ms) after which the mean stays within ±5 % of steady state, if reached.
     pub settle_ms: Option<f32>,
@@ -325,4 +326,15 @@ pub struct Recommendation {
     pub confidence: Confidence,
     pub requires_reboot: bool,
     pub accepted: bool,
+}
+
+/// serde for f32 fields that may be NaN: JSON has no NaN, so `null` ⇄ NaN.
+pub mod nan_f32 {
+    use serde::{Deserialize, Deserializer, Serializer};
+    pub fn serialize<S: Serializer>(v: &f32, s: S) -> Result<S::Ok, S::Error> {
+        if v.is_finite() { s.serialize_f32(*v) } else { s.serialize_none() }
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
+        Ok(Option::<f32>::deserialize(d)?.unwrap_or(f32::NAN))
+    }
 }
