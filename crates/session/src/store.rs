@@ -65,7 +65,7 @@ impl SessionStore {
                 }
             }
         }
-        out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        out.sort_by_key(|s| std::cmp::Reverse(s.updated_at));
         Ok(out)
     }
 

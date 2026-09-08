@@ -145,7 +145,7 @@ impl Pids {
             return Err(short("MSP_PID", p.len()));
         }
         Ok(Self {
-            rows: p.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect(),
+            rows: p.as_chunks::<3>().0.to_vec(),
         })
     }
     pub fn encode(&self) -> Vec<u8> {
