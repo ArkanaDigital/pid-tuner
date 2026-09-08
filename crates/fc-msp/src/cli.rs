@@ -13,7 +13,9 @@ impl<'a> Cli<'a> {
     /// Enter CLI mode (`#`). The FC answers with a banner ending in `# `.
     pub fn enter(link: &'a mut MspLink) -> Result<Self, MspError> {
         link.write_raw(b"#")?;
-        let banner = link.read_raw_until(Duration::from_secs(2), |b| b.ends_with(b"# ") || b.ends_with(b"#\r\n") )?;
+        let banner = link.read_raw_until(Duration::from_secs(2), |b| {
+            b.ends_with(b"# ") || b.ends_with(b"#\r\n")
+        })?;
         if !banner.windows(1).any(|w| w == b"#") {
             return Err(MspError::Protocol("no CLI prompt".into()));
         }
@@ -23,10 +25,16 @@ impl<'a> Cli<'a> {
     /// Send a command and collect output until the next prompt.
     pub fn exec(&mut self, cmd: &str, timeout: Duration) -> Result<String, MspError> {
         self.link.write_raw(format!("{cmd}\n").as_bytes())?;
-        let out = self.link.read_raw_until(timeout, |b| b.ends_with(b"\n# ") || b.ends_with(b"\r\n# "))?;
+        let out = self
+            .link
+            .read_raw_until(timeout, |b| b.ends_with(b"\n# ") || b.ends_with(b"\r\n# "))?;
         let s = String::from_utf8_lossy(&out).into_owned();
         // strip echo + trailing prompt
-        let s = s.strip_prefix(cmd).unwrap_or(&s).trim_start_matches(['\r', '\n']).to_string();
+        let s = s
+            .strip_prefix(cmd)
+            .unwrap_or(&s)
+            .trim_start_matches(['\r', '\n'])
+            .to_string();
         Ok(s.trim_end_matches("# ").trim_end().to_string())
     }
 
@@ -54,7 +62,9 @@ impl<'a> Cli<'a> {
     /// `save` reboots the FC; the link is unusable afterwards.
     pub fn save(self) -> Result<(), MspError> {
         self.link.write_raw(b"save\n")?;
-        let _ = self.link.read_raw_until(Duration::from_millis(800), |_| false);
+        let _ = self
+            .link
+            .read_raw_until(Duration::from_millis(800), |_| false);
         Ok(())
     }
 
@@ -62,7 +72,9 @@ impl<'a> Cli<'a> {
     /// only when nothing was changed).
     pub fn exit(self) -> Result<(), MspError> {
         self.link.write_raw(b"exit\n")?;
-        let _ = self.link.read_raw_until(Duration::from_millis(500), |_| false);
+        let _ = self
+            .link
+            .read_raw_until(Duration::from_millis(500), |_| false);
         Ok(())
     }
 }

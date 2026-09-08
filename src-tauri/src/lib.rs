@@ -1,8 +1,10 @@
 //! Tauri shell: commands exposed to the UI. Heavy work runs on blocking threads.
 
+mod ai;
 mod commands;
 mod fc;
 mod report;
+mod settings;
 mod wizard;
 
 use std::collections::HashMap;
@@ -17,6 +19,11 @@ pub struct AppState {
     pub store: Mutex<Option<session::SessionStore>>,
     pub fc: Mutex<session::FcStatus>,
     pub client: Mutex<Option<fc::Client>>,
+    pub settings: Mutex<Option<appconfig::SettingsStore>>,
+    pub settings_cache: Mutex<Option<appconfig::Settings>>,
+    pub http: reqwest::Client,
+    pub ai_busy: Mutex<bool>,
+    pub quick: Mutex<Option<ai::host::QuickCtx>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -26,9 +33,15 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
         .setup(|app| {
-            let dir = app.path().app_data_dir().expect("app data dir").join("sessions");
+            let dir = app
+                .path()
+                .app_data_dir()
+                .expect("app data dir")
+                .join("sessions");
             std::fs::create_dir_all(&dir).ok();
             *app.state::<AppState>().store.lock().unwrap() = Some(session::SessionStore::new(dir));
+            let base = app.path().app_data_dir().expect("app data dir");
+            *app.state::<AppState>().settings.lock().unwrap() = Some(settings::store_for(&base));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -69,6 +82,13 @@ pub fn run() {
             fc::fc_apply,
             fc::fc_list_logs,
             fc::fc_export_text,
+            settings::settings_get,
+            settings::settings_set,
+            settings::settings_test_provider,
+            ai::commands::ai_chat,
+            ai::commands::ai_transcript_get,
+            ai::commands::ai_transcript_clear,
+            ai::commands::ai_budget,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

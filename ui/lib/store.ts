@@ -1,7 +1,7 @@
 import { create } from "zustand";
-import type { AnalysisBundle, FcStatus, Flight, LogSummary, Recommendation, SessionInfo, SessionSnapshot, SessionSummary } from "./types";
+import type { AnalysisBundle, BudgetView, FcStatus, Flight, LogSummary, Recommendation, SessionInfo, SessionSnapshot, SessionSummary, SettingsView, TurnMeta } from "./types";
 
-type View = "home" | "wizard" | "quick";
+type View = "home" | "wizard" | "quick" | "settings";
 
 interface State {
   view: View;
@@ -20,7 +20,11 @@ interface State {
   fc: FcStatus | null;
   stepSmoothMs: number;
   stepBand: boolean;
+  prevView: View;
+  settings: SettingsView | null;
+  ai: { open: boolean; turns: TurnMeta[]; busy: boolean; progress: string | null; budget: BudgetView | null };
   set: (p: Partial<State>) => void;
+  setAi: (p: Partial<State["ai"]>) => void;
   setBundle: (f: Flight, b: AnalysisBundle) => void;
 }
 
@@ -39,7 +43,11 @@ export const useStore = create<State>((set) => ({
   fc: null,
   stepSmoothMs: 20,
   stepBand: false,
+  prevView: "home",
+  settings: null,
+  ai: { open: true, turns: [], busy: false, progress: null, budget: null },
   set: (p) => set(p),
+  setAi: (p) => set((s) => ({ ai: { ...s.ai, ...p } })),
   setBundle: (f, b) => set((s) => ({ bundles: { ...s.bundles, [f]: b } })),
 }));
 

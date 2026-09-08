@@ -26,7 +26,13 @@ pub fn looks_like_dataflash(bytes: &[u8]) -> bool {
     let b = &bytes[..n];
     let mut i = 0;
     while i + 8 <= b.len() {
-        if b[i] == HEAD_BYTE1 && b[i + 1] == HEAD_BYTE2 && b[i + 2] == FMT_MSG_ID && b[i + 3] == FMT_MSG_ID && b[i + 4] == FMT_MSG_LEN && &b[i + 5..i + 8] == b"FMT" {
+        if b[i] == HEAD_BYTE1
+            && b[i + 1] == HEAD_BYTE2
+            && b[i + 2] == FMT_MSG_ID
+            && b[i + 3] == FMT_MSG_ID
+            && b[i + 4] == FMT_MSG_LEN
+            && &b[i + 5..i + 8] == b"FMT"
+        {
             return true;
         }
         i += 1;

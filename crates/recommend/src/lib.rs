@@ -7,6 +7,7 @@ pub mod ap;
 pub mod ap_param_meta;
 pub mod bf;
 pub mod bf_chirp;
+pub mod bf_param_meta;
 
 use domain::{AnalysisBundle, Recommendation, Tune};
 
@@ -23,7 +24,13 @@ pub fn recommend(tune: &Tune, bundle: &AnalysisBundle, phase: Phase) -> Vec<Reco
 
 /// `hover_thr` (0..1, from `CTUN.ThH`) and `max_srate` (per axis, `PIDx.SRate`)
 /// feed the ArduPilot rules; pass `None` when unknown.
-pub fn recommend_with(tune: &Tune, bundle: &AnalysisBundle, phase: Phase, hover_thr: Option<f32>, max_srate: Option<[f32; 3]>) -> Vec<Recommendation> {
+pub fn recommend_with(
+    tune: &Tune,
+    bundle: &AnalysisBundle,
+    phase: Phase,
+    hover_thr: Option<f32>,
+    max_srate: Option<[f32; 3]>,
+) -> Vec<Recommendation> {
     match tune {
         Tune::Bf(t) => match phase {
             Phase::Filters => bf::filters(t, bundle),
@@ -38,8 +45,16 @@ pub fn recommend_with(tune: &Tune, bundle: &AnalysisBundle, phase: Phase, hover_
 }
 
 /// Convenience: derive the ArduPilot inputs from the log itself.
-pub fn recommend_for_log(log: &domain::FlightLog, bundle: &AnalysisBundle, phase: Phase) -> Vec<Recommendation> {
-    let hover = log.meta.headers.get("ap.hover_thr").and_then(|v| v.parse::<f32>().ok());
+pub fn recommend_for_log(
+    log: &domain::FlightLog,
+    bundle: &AnalysisBundle,
+    phase: Phase,
+) -> Vec<Recommendation> {
+    let hover = log
+        .meta
+        .headers
+        .get("ap.hover_thr")
+        .and_then(|v| v.parse::<f32>().ok());
     let srate = ap::max_srate(log, bundle.quality.airborne_range_s);
     recommend_with(&log.tune_at_log, bundle, phase, hover, srate)
 }

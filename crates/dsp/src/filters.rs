@@ -20,7 +20,13 @@ pub struct Biquad {
 }
 
 impl Biquad {
-    pub const IDENTITY: Biquad = Biquad { b0: 1.0, b1: 0.0, b2: 0.0, a1: 0.0, a2: 0.0 };
+    pub const IDENTITY: Biquad = Biquad {
+        b0: 1.0,
+        b1: 0.0,
+        b2: 0.0,
+        a1: 0.0,
+        a2: 0.0,
+    };
 
     /// Complex frequency response at `f` Hz for sample rate `fs`.
     pub fn response(&self, f: f32, fs: f32) -> Complex32 {
@@ -39,7 +45,13 @@ impl Biquad {
         let dt = 1.0 / fs;
         let rc = 1.0 / (TAU * f_cut);
         let k = dt / (rc + dt);
-        Biquad { b0: k, b1: 0.0, b2: 0.0, a1: -(1.0 - k), a2: 0.0 }
+        Biquad {
+            b0: k,
+            b1: 0.0,
+            b2: 0.0,
+            a1: -(1.0 - k),
+            a2: 0.0,
+        }
     }
 
     /// One PT1 stage of a PT2 (Betaflight applies `cutoffCorrection = 1/√(2^(1/2)−1)`).
@@ -150,7 +162,10 @@ pub struct FilterChain {
 
 impl FilterChain {
     pub fn new(fs: f32) -> Self {
-        Self { stages: Vec::new(), fs }
+        Self {
+            stages: Vec::new(),
+            fs,
+        }
     }
 
     pub fn push(&mut self, b: Biquad) -> &mut Self {
@@ -198,7 +213,12 @@ impl FilterChain {
             }
             match composite.max(1) {
                 1 => {
-                    self.push(Biquad::ap_notch(fc, bandwidth * mul, attenuation_db, self.fs));
+                    self.push(Biquad::ap_notch(
+                        fc,
+                        bandwidth * mul,
+                        attenuation_db,
+                        self.fs,
+                    ));
                 }
                 n => {
                     let spread = bandwidth / (32.0 * center);
@@ -217,9 +237,9 @@ impl FilterChain {
     }
 
     pub fn response(&self, f: f32) -> Complex32 {
-        self.stages
-            .iter()
-            .fold(Complex32::new(1.0, 0.0), |acc, b| acc * b.response(f, self.fs))
+        self.stages.iter().fold(Complex32::new(1.0, 0.0), |acc, b| {
+            acc * b.response(f, self.fs)
+        })
     }
 
     pub fn magnitude_db(&self, f: f32) -> f32 {

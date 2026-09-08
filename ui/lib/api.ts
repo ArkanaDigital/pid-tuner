@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import type { AnalysisBundle, ApplyPhase, ConnectKind, Protocol, FcApplyResult, FcLogEntry, FcStatus, Flight, ImportResult, LogSummary, Mode, ParamValue, PidStrategy, PortInfo, Recommendation, SessionInfo, SessionSnapshot, SessionSummary, Step } from "./types";
+import type { AiScope, AiTurnView, AnalysisBundle, ApplyPhase, BudgetView, ConnectKind, Protocol, Provider, SettingsPatch, SettingsView, TestResult, TranscriptView, FcApplyResult, FcLogEntry, FcStatus, Flight, ImportResult, LogSummary, Mode, ParamValue, PidStrategy, PortInfo, Recommendation, SessionInfo, SessionSnapshot, SessionSummary, Step } from "./types";
 
 export async function pickLogFile(): Promise<string | null> {
   const r = await open({
@@ -63,4 +63,13 @@ export const api = {
   pidStrategy: (strategy: PidStrategy) => invoke<SessionSnapshot>("wizard_pid_strategy", { strategy }),
   fcApply: (phase: ApplyPhase) => invoke<FcApplyResult>("fc_apply", { phase }),
   reportExport: (images: { title: string; data_url: string }[]) => invoke<string>("report_export", { images }),
+
+  // ---- settings & AI ----
+  settingsGet: () => invoke<SettingsView>("settings_get"),
+  settingsSet: (patch: SettingsPatch) => invoke<SettingsView>("settings_set", { patch }),
+  settingsTest: (provider: Provider) => invoke<TestResult>("settings_test_provider", { provider }),
+  aiChat: (scope: AiScope, text: string) => invoke<AiTurnView>("ai_chat", { req: { scope, text } }),
+  aiTranscript: (scope: AiScope) => invoke<TranscriptView>("ai_transcript_get", { scope }),
+  aiTranscriptClear: (scope: AiScope) => invoke<void>("ai_transcript_clear", { scope }),
+  aiBudget: (scope: AiScope) => invoke<BudgetView>("ai_budget", { scope }),
 };

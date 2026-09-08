@@ -237,6 +237,10 @@ export function firmwareText(f: Firmware): string {
 export type Step =
   | "connect" | "preflight" | "flight_a" | "import_a" | "filter_analysis" | "apply_filters"
   | "flight_b" | "import_b" | "pid_analysis" | "apply_pids" | "flight_c" | "import_c" | "compare" | "report";
+export const STEPS: Step[] = [
+  "connect", "preflight", "flight_a", "import_a", "filter_analysis", "apply_filters",
+  "flight_b", "import_b", "pid_analysis", "apply_pids", "flight_c", "import_c", "compare", "report",
+];
 export type StepStatus = "locked" | "active" | "passed" | "skipped";
 export type Flight = "a" | "b" | "c";
 export type Mode = "online" | "offline";
@@ -389,3 +393,115 @@ export interface ImportResult {
 export const STEP_FLIGHT: Partial<Record<Step, Flight>> = {
   flight_a: "a", import_a: "a", flight_b: "b", import_b: "b", flight_c: "c", import_c: "c",
 };
+
+// ---------------- AI helper / settings ----------------
+
+export type Provider = "anthropic" | "openai" | "gemini" | "deepseek";
+export const PROVIDERS: Provider[] = ["anthropic", "openai", "gemini", "deepseek"];
+export const PROVIDER_TITLE: Record<Provider, string> = { anthropic: "Anthropic (Claude)", openai: "OpenAI", gemini: "Google Gemini", deepseek: "DeepSeek" };
+
+export interface ProviderConfig {
+  model: string;
+  base_url: string | null;
+}
+
+export interface ModelPrice {
+  input_per_m: number;
+  output_per_m: number;
+  cached_input_per_m: number | null;
+}
+
+export interface SettingsView {
+  schema_version: number;
+  provider: Provider;
+  providers: Record<Provider, ProviderConfig>;
+  language: string;
+  token_budget_per_session: number;
+  max_tool_rounds: number;
+  prices: Record<string, ModelPrice>;
+  keys: Record<Provider, { set: boolean; masked: string }>;
+  known_models: Record<Provider, string[]>;
+  load_warnings: string[];
+}
+
+export interface SettingsPatch {
+  provider?: Provider;
+  providers?: Partial<Record<Provider, ProviderConfig>>;
+  language?: string;
+  token_budget_per_session?: number;
+  max_tool_rounds?: number;
+  prices?: Record<string, ModelPrice>;
+  keys?: Partial<Record<Provider, string | null>>;
+}
+
+export interface TestResult {
+  ok: boolean;
+  model: string;
+  latency_ms: number;
+  usage: Usage;
+  message: string;
+}
+
+export interface Usage {
+  input: number;
+  output: number;
+  cached: number;
+  reasoning: number;
+}
+
+export interface AiToolCall {
+  name: string;
+  args: unknown;
+  ok: boolean;
+  preview: string;
+}
+
+export type AiScope = "session" | "quick";
+
+export interface AiTurnView {
+  reply: string;
+  usage: Usage;
+  cost_usd: number;
+  session_usage: Usage;
+  session_cost_usd: number;
+  tool_calls: AiToolCall[];
+  stopped_by: string | null;
+  provider: string;
+  model: string;
+  snapshot: SessionSnapshot | null;
+  quick_recs: Recommendation[] | null;
+}
+
+export interface TurnMeta {
+  at: string;
+  step: string;
+  provider: string;
+  model: string;
+  user_text: string;
+  reply: string;
+  usage: Usage;
+  cost_usd: number;
+  tool_calls: AiToolCall[];
+  stopped_by: string | null;
+}
+
+export interface TranscriptView {
+  turns: TurnMeta[];
+  usage_total: Usage;
+  cost_total_usd: number;
+}
+
+export interface BudgetView {
+  used_tokens: number;
+  limit_tokens: number;
+  cost_usd: number;
+  provider: string;
+  model: string;
+  key_set: boolean;
+}
+
+export type AiProgressEvent =
+  | { kind: "thinking"; round: number }
+  | { kind: "tool_call"; round: number; name: string; args: unknown }
+  | { kind: "tool_result"; round: number; name: string; ok: boolean; chars: number }
+  | { kind: "usage"; turn: Usage; session: Usage; cost_usd: number };

@@ -48,7 +48,10 @@ pub struct IngestOpts {
 
 impl Default for IngestOpts {
     fn default() -> Self {
-        Self { fs_hz: None, gap_mult: 4.0 }
+        Self {
+            fs_hz: None,
+            gap_mult: 4.0,
+        }
     }
 }
 
@@ -76,8 +79,17 @@ pub fn list_sessions(bytes: &[u8]) -> Vec<SessionInfo> {
 
 /// Names of the main-frame fields we decode (base names; array suffixes implied).
 const WANTED: &[&str] = &[
-    "gyroADC", "gyroUnfilt", "setpoint", "rcCommand", "axisP", "axisI", "axisD", "axisF",
-    "motor", "debug", "eRPM",
+    "gyroADC",
+    "gyroUnfilt",
+    "setpoint",
+    "rcCommand",
+    "axisP",
+    "axisI",
+    "axisD",
+    "axisF",
+    "motor",
+    "debug",
+    "eRPM",
 ];
 
 struct Column {
@@ -95,7 +107,10 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
     let session_count = file.log_count();
 
     let mut raw_headers = headers::raw_headers(bytes, session);
-    let high_res = raw_headers.get("blackbox_high_resolution").map(|v| v == "1").unwrap_or(false);
+    let high_res = raw_headers
+        .get("blackbox_high_resolution")
+        .map(|v| v == "1")
+        .unwrap_or(false);
     let hr_scale = if high_res { 0.1 } else { 1.0 };
     let debug_mode = hdr.debug_mode().as_name().to_string();
 
@@ -115,7 +130,14 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
             "setpoint" if !f.name.ends_with("[3]") => hr_scale,
             _ => 1.0,
         };
-        cols.insert(f.name.to_string(), Column { idx: i, scale, data: Vec::new() });
+        cols.insert(
+            f.name.to_string(),
+            Column {
+                idx: i,
+                scale,
+                data: Vec::new(),
+            },
+        );
     }
     if !cols.contains_key("gyroADC[0]") {
         return Err(IngestError::MissingField("gyroADC"));
@@ -131,7 +153,10 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
     let mut vals: Vec<f32> = vec![0.0; cols.len()];
     let mut last_t: u64 = 0;
     // BOXCHIRP flag per main frame (from the latest slow frame); None until a slow frame arrives.
-    let slow_has_flags = parser.slow_frame_def().iter().any(|f| f.name == "flightModeFlags");
+    let slow_has_flags = parser
+        .slow_frame_def()
+        .iter()
+        .any(|f| f.name == "flightModeFlags");
     let mut mode_flags_cur: Option<u32> = None;
     let mut mode_flags: Vec<u32> = Vec::new();
     let mut any_slow = false;
@@ -157,7 +182,9 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
                     MainValue::Rotation(r) => r.get::<degree_per_second>() as f32,
                     MainValue::Signed(s) => s as f32,
                     MainValue::Unsigned(u) => u as f32,
-                    MainValue::Amperage(_) | MainValue::Voltage(_) | MainValue::Acceleration(_) => 0.0,
+                    MainValue::Amperage(_) | MainValue::Voltage(_) | MainValue::Acceleration(_) => {
+                        0.0
+                    }
                 };
             }
             t_us.push(t as f64 * 1e-6);
@@ -183,10 +210,15 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
     let grid = dsp::resample::uniform_grid(t0, t_end, fs);
     let gaps = dsp::resample::find_gaps(&t_us, dt, opts.gap_mult);
     let rs = |name: &str| -> Option<Vec<f32>> {
-        cols.get(name).map(|c| dsp::resample::interp_linear(&t_us, &c.data, &grid))
+        cols.get(name)
+            .map(|c| dsp::resample::interp_linear(&t_us, &c.data, &grid))
     };
     let rs3 = |base: &str| -> Option<[Vec<f32>; 3]> {
-        Some([rs(&format!("{base}[0]"))?, rs(&format!("{base}[1]"))?, rs(&format!("{base}[2]"))?])
+        Some([
+            rs(&format!("{base}[0]"))?,
+            rs(&format!("{base}[1]"))?,
+            rs(&format!("{base}[2]"))?,
+        ])
     };
 
     let gyro_filt = rs3("gyroADC").ok_or(IngestError::MissingField("gyroADC"))?;
@@ -203,7 +235,10 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
                         "setpoint is not logged (blackbox_disable_setpoint = ON, fields_disabled_mask bit 2): rebuilt from rcCommand with the {} rates (rc_rates {:?}, rates {:?}, expo {:?}) without RC smoothing — step-response latency reads a few ms high. Enable the Setpoint field in Blackbox for exact results.",
                         pr.type_name(), pr.rc_rates, pr.rates, pr.rc_expo
                     ));
-                    extra_headers.push(("bf.setpoint_reconstructed".into(), pr.type_name().to_string()));
+                    extra_headers.push((
+                        "bf.setpoint_reconstructed".into(),
+                        pr.type_name().to_string(),
+                    ));
                     let mut out: [Vec<f32>; 3] = Default::default();
                     for k in 0..3 {
                         out[k] = rc[k].iter().map(|&v| pr.setpoint(k, v)).collect();
@@ -228,7 +263,8 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
         None if debug_mode == "GYRO_SCALED" => rs3("debug"),
         None => {
             warnings.push(
-                "no unfiltered gyro: log gyroUnfilt (BF ≥ 4.4) or set debug_mode = GYRO_SCALED".into(),
+                "no unfiltered gyro: log gyroUnfilt (BF ≥ 4.4) or set debug_mode = GYRO_SCALED"
+                    .into(),
             );
             None
         }
@@ -268,14 +304,21 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
         .get("motorOutput")
         .and_then(|v| {
             let mut it = v.split(',');
-            Some((it.next()?.trim().parse::<f32>().ok()?, it.next()?.trim().parse::<f32>().ok()?))
+            Some((
+                it.next()?.trim().parse::<f32>().ok()?,
+                it.next()?.trim().parse::<f32>().ok()?,
+            ))
         })
         .unwrap_or((1000.0, 2000.0));
     let m_span = (m_hi - m_lo).max(1.0);
     let mut motors = Vec::new();
     for k in 0..8 {
         match rs(&format!("motor[{k}]")) {
-            Some(m) => motors.push(m.iter().map(|v| ((v - m_lo) / m_span).clamp(0.0, 1.2)).collect()),
+            Some(m) => motors.push(
+                m.iter()
+                    .map(|v| ((v - m_lo) / m_span).clamp(0.0, 1.2))
+                    .collect(),
+            ),
             None => break,
         }
     }
@@ -295,19 +338,30 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
         }
     }
     // flight-mode flags on the grid (nearest source frame; u32 → f32 would lose bits ≥ 24)
-    let flight_mode_flags: Vec<u32> = if any_slow { nearest_u32(&t_us, &mode_flags, &grid) } else { Vec::new() };
+    let flight_mode_flags: Vec<u32> = if any_slow {
+        nearest_u32(&t_us, &mode_flags, &grid)
+    } else {
+        Vec::new()
+    };
 
     let throttle = match rs("setpoint[3]") {
         Some(t) => t.iter().map(|v| (v / 1000.0).clamp(0.0, 1.0)).collect(),
         None => rs("rcCommand[3]")
-            .map(|t| t.iter().map(|v| ((v - 1000.0) / 1000.0).clamp(0.0, 1.0)).collect())
+            .map(|t| {
+                t.iter()
+                    .map(|v| ((v - 1000.0) / 1000.0).clamp(0.0, 1.0))
+                    .collect()
+            })
             .unwrap_or_else(|| vec![0.0; grid.len()]),
     };
 
     let bf_tune = tune::parse_bf_tune(&raw_headers);
     let version = headers::firmware_version(&raw_headers).unwrap_or_default();
     let looptime_us: Option<f64> = raw_headers.get("looptime").and_then(|v| v.parse().ok());
-    let pid_denom: f64 = raw_headers.get("pid_process_denom").and_then(|v| v.parse().ok()).unwrap_or(1.0);
+    let pid_denom: f64 = raw_headers
+        .get("pid_process_denom")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1.0);
     let loop_hz = looptime_us.map(|lt| 1e6 / (lt * pid_denom));
 
     // ---- Betaflight CHIRP ------------------------------------------------------
@@ -321,7 +375,8 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
     if let Some(r) = debug_raw {
         extra_headers.push(("bf.debug_mode_raw".into(), r.to_string()));
     }
-    let debug_is_chirp = debug.len() >= 2 && chirp::looks_like_chirp(&debug[1], debug.get(2).map(|v| v.as_slice()));
+    let debug_is_chirp =
+        debug.len() >= 2 && chirp::looks_like_chirp(&debug[1], debug.get(2).map(|v| v.as_slice()));
     let mut debug_mode = debug_mode;
     if debug_mode == "UNKNOWN" {
         if let (Some(r), Some(mm)) = (debug_raw, ver_mm) {
@@ -341,8 +396,16 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
         // "H P interval:2" (or "1/2") → every 2nd PID loop is logged (Configurator frameIntervalPDenom)
         let bb_denom: f64 = raw_headers
             .get("P interval")
-            .and_then(|v| v.rsplit('/').next().and_then(|d| d.trim().parse::<f64>().ok()))
-            .or_else(|| raw_headers.get("frameIntervalPDenom").and_then(|v| v.parse().ok()))
+            .and_then(|v| {
+                v.rsplit('/')
+                    .next()
+                    .and_then(|d| d.trim().parse::<f64>().ok())
+            })
+            .or_else(|| {
+                raw_headers
+                    .get("frameIntervalPDenom")
+                    .and_then(|v| v.parse().ok())
+            })
             .unwrap_or(1.0);
         let chirp_fs = looptime_us.map(|lt| 1e6 / (lt * pid_denom * bb_denom.max(1.0)));
         if let Some(cfs) = chirp_fs {
@@ -353,14 +416,24 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
         }
         let seg = dsp::cross::segment_size_for(fs);
         let segments = if debug.len() >= 2 {
-            chirp::detect_segments(&grid, Some(&debug[1]), debug.get(2).map(|v| v.as_slice()), (!flight_mode_flags.is_empty()).then_some(flight_mode_flags.as_slice()), seg)
+            chirp::detect_segments(
+                &grid,
+                Some(&debug[1]),
+                debug.get(2).map(|v| v.as_slice()),
+                (!flight_mode_flags.is_empty()).then_some(flight_mode_flags.as_slice()),
+                seg,
+            )
         } else {
             if chirp_cfg.is_some() {
                 warnings.push("chirp_* settings present but debug fields are not logged (blackbox_disable_debug): CHIRP segments cannot be located.".into());
             }
             Vec::new()
         };
-        Some(ChirpInfo { config: chirp_cfg, segments, debug_is_chirp })
+        Some(ChirpInfo {
+            config: chirp_cfg,
+            segments,
+            debug_is_chirp,
+        })
     } else {
         None
     };
@@ -372,7 +445,10 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
 
     Ok(FlightLog {
         id,
-        firmware: Firmware::Betaflight { version, api: (0, 0) },
+        firmware: Firmware::Betaflight {
+            version,
+            api: (0, 0),
+        },
         fs_hz: fs,
         t: grid,
         axes,
@@ -388,7 +464,10 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
             duration_s: t_end - t0,
             session_index: session,
             session_count,
-            headers: { raw_headers.extend(extra_headers); raw_headers },
+            headers: {
+                raw_headers.extend(extra_headers);
+                raw_headers
+            },
             warnings,
             msg_rates_hz: Default::default(),
         },
@@ -403,5 +482,8 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
 /// Nearest-sample resampling for integer masks (see `dsp::resample::interp_nearest`).
 fn nearest_u32(t_src: &[f64], y: &[u32], t_dst: &[f32]) -> Vec<u32> {
     let idx: Vec<f32> = (0..y.len()).map(|i| i as f32).collect();
-    dsp::resample::interp_nearest(t_src, &idx, t_dst).into_iter().map(|i| y[(i as usize).min(y.len().saturating_sub(1))]).collect()
+    dsp::resample::interp_nearest(t_src, &idx, t_dst)
+        .into_iter()
+        .map(|i| y[(i as usize).min(y.len().saturating_sub(1))])
+        .collect()
 }

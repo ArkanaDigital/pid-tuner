@@ -17,9 +17,16 @@ pub const BOXHORIZON_BIT: u32 = 2;
 
 pub fn config_from_headers(h: &BTreeMap<String, String>) -> Option<ChirpConfig> {
     let g = |k: &str| h.get(k).and_then(|v| v.trim().parse::<f32>().ok());
-    let any = ["chirp_lag_freq_hz", "chirp_lead_freq_hz", "chirp_amplitude_roll", "chirp_frequency_start_deci_hz", "chirp_frequency_end_deci_hz", "chirp_time_seconds"]
-        .iter()
-        .any(|k| h.contains_key(*k));
+    let any = [
+        "chirp_lag_freq_hz",
+        "chirp_lead_freq_hz",
+        "chirp_amplitude_roll",
+        "chirp_frequency_start_deci_hz",
+        "chirp_frequency_end_deci_hz",
+        "chirp_time_seconds",
+    ]
+    .iter()
+    .any(|k| h.contains_key(*k));
     if !any {
         return None;
     }
@@ -32,8 +39,12 @@ pub fn config_from_headers(h: &BTreeMap<String, String>) -> Option<ChirpConfig> 
             g("chirp_amplitude_pitch").unwrap_or(d.amplitude[1] as f32) as u16,
             g("chirp_amplitude_yaw").unwrap_or(d.amplitude[2] as f32) as u16,
         ],
-        f_start_hz: g("chirp_frequency_start_deci_hz").map(|v| v / 10.0).unwrap_or(d.f_start_hz),
-        f_end_hz: g("chirp_frequency_end_deci_hz").map(|v| v / 10.0).unwrap_or(d.f_end_hz),
+        f_start_hz: g("chirp_frequency_start_deci_hz")
+            .map(|v| v / 10.0)
+            .unwrap_or(d.f_start_hz),
+        f_end_hz: g("chirp_frequency_end_deci_hz")
+            .map(|v| v / 10.0)
+            .unwrap_or(d.f_end_hz),
         time_s: g("chirp_time_seconds").unwrap_or(d.time_s),
     })
 }
@@ -45,7 +56,10 @@ pub fn looks_like_chirp(debug1: &[f32], debug2: Option<&[f32]>) -> bool {
     if debug1.len() < 100 {
         return false;
     }
-    let ok = debug1.iter().filter(|v| (-1.0..=2.0).contains(*v) && v.fract() == 0.0).count();
+    let ok = debug1
+        .iter()
+        .filter(|v| (-1.0..=2.0).contains(*v) && v.fract() == 0.0)
+        .count();
     if (ok as f64) < 0.99 * debug1.len() as f64 {
         return false;
     }
@@ -81,7 +95,13 @@ pub fn looks_like_chirp(debug1: &[f32], debug2: Option<&[f32]>) -> bool {
 /// * `mode_flags` — `flightModeFlags` per sample from slow frames (None when not decoded);
 ///   bit 6 (BOXCHIRP) gates the run, bits 1/2 (ANGLE/HORIZON) tag it and split it.
 /// * `segment_size` — Welch window; shorter runs are dropped.
-pub fn detect_segments(t: &[f32], debug1: Option<&[f32]>, debug2: Option<&[f32]>, mode_flags: Option<&[u32]>, segment_size: usize) -> Vec<ChirpSegment> {
+pub fn detect_segments(
+    t: &[f32],
+    debug1: Option<&[f32]>,
+    debug2: Option<&[f32]>,
+    mode_flags: Option<&[u32]>,
+    segment_size: usize,
+) -> Vec<ChirpSegment> {
     let n = t.len();
     let mut out = Vec::new();
     let chirp_flag = mode_flags.is_some();
@@ -113,23 +133,45 @@ pub fn detect_segments(t: &[f32], debug1: Option<&[f32]>, debug2: Option<&[f32]>
                         hi = hi.max(*v);
                     }
                 }
-                if hi.is_finite() { (lo / 10.0, hi / 10.0) } else { (f32::NAN, f32::NAN) }
+                if hi.is_finite() {
+                    (lo / 10.0, hi / 10.0)
+                } else {
+                    (f32::NAN, f32::NAN)
+                }
             }
             None => (f32::NAN, f32::NAN),
         };
-        out.push(ChirpSegment { axis: Axis::ALL[axis as usize], i0: a, i1: b, t0_s: t[a], t1_s: t[b.min(n - 1)], f_start_hz, f_end_hz, source, angle_mode: angle });
+        out.push(ChirpSegment {
+            axis: Axis::ALL[axis as usize],
+            i0: a,
+            i1: b,
+            t0_s: t[a],
+            t1_s: t[b.min(n - 1)],
+            f_start_hz,
+            f_end_hz,
+            source,
+            angle_mode: angle,
+        });
     };
     for i in 0..n {
         let raw = d1[i];
         let flags = mode_flags.map(|f| f[i]);
         let gate = flags.map(|m| m & (1 << BOXCHIRP_BIT) != 0).unwrap_or(true);
-        let axis: i32 = if raw.is_finite() && raw.fract() == 0.0 && (-1.0..=2.0).contains(&raw) { raw as i32 } else { i32::MIN };
+        let axis: i32 = if raw.is_finite() && raw.fract() == 0.0 && (-1.0..=2.0).contains(&raw) {
+            raw as i32
+        } else {
+            i32::MIN
+        };
         if axis == i32::MIN {
             continue; // corrupt frame: ignore, do not split
         }
         let axis = if gate { axis } else { -1 };
         // ANGLE/HORIZON level roll and pitch only; yaw stays a pure rate loop.
-        let angle = axis >= 0 && axis != 2 && flags.map(|m| m & ((1 << BOXANGLE_BIT) | (1 << BOXHORIZON_BIT)) != 0).unwrap_or(false);
+        let angle = axis >= 0
+            && axis != 2
+            && flags
+                .map(|m| m & ((1 << BOXANGLE_BIT) | (1 << BOXHORIZON_BIT)) != 0)
+                .unwrap_or(false);
         if axis != cur_axis || (axis >= 0 && angle != cur_angle) {
             close(&mut out, cur_axis, cur_angle, start, i);
             cur_axis = axis;
@@ -146,13 +188,24 @@ mod tests {
     use super::*;
 
     fn seq(parts: &[(f32, usize)]) -> Vec<f32> {
-        parts.iter().flat_map(|(v, n)| std::iter::repeat_n(*v, *n)).collect()
+        parts
+            .iter()
+            .flat_map(|(v, n)| std::iter::repeat_n(*v, *n))
+            .collect()
     }
 
     #[test]
     fn segments_from_debug_axis_with_corrupt_frames() {
         let fs = 2000.0;
-        let d1 = seq(&[(-1.0, 100), (0.0, 5000), (-1.0, 50), (1.0, 5000), (7.0, 3), (1.0, 2000), (-1.0, 10)]);
+        let d1 = seq(&[
+            (-1.0, 100),
+            (0.0, 5000),
+            (-1.0, 50),
+            (1.0, 5000),
+            (7.0, 3),
+            (1.0, 2000),
+            (-1.0, 10),
+        ]);
         let t: Vec<f32> = (0..d1.len()).map(|i| i as f32 / fs).collect();
         let segs = detect_segments(&t, Some(&d1), None, None, 1024);
         assert_eq!(segs.len(), 2, "{segs:?}");
@@ -176,21 +229,33 @@ mod tests {
         let flag = vec![0u32; d1.len()];
         assert!(detect_segments(&t, Some(&d1), None, Some(&flag), 1024).is_empty());
         // gate set only during the yaw run → Both
-        let flag: Vec<u32> = (0..d1.len()).map(|i| if i >= 310 { 1 << BOXCHIRP_BIT } else { 0 }).collect();
+        let flag: Vec<u32> = (0..d1.len())
+            .map(|i| if i >= 310 { 1 << BOXCHIRP_BIT } else { 0 })
+            .collect();
         let s = detect_segments(&t, Some(&d1), None, Some(&flag), 1024);
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].source, ChirpGate::Both);
         assert!(!s[0].angle_mode);
         assert!(detect_segments(&t, None, None, Some(&flag), 1024).is_empty());
         // ANGLE mode does not affect yaw (still a rate loop): one segment, not tagged
-        let flag: Vec<u32> = (0..d1.len()).map(|i| if i >= 310 { (1 << BOXCHIRP_BIT) | if i >= 1810 { 1 << BOXANGLE_BIT } else { 0 } } else { 0 }).collect();
+        let flag: Vec<u32> = (0..d1.len())
+            .map(|i| {
+                if i >= 310 {
+                    (1 << BOXCHIRP_BIT) | if i >= 1810 { 1 << BOXANGLE_BIT } else { 0 }
+                } else {
+                    0
+                }
+            })
+            .collect();
         let s = detect_segments(&t, Some(&d1), None, Some(&flag), 1024);
         assert_eq!(s.len(), 1, "{s:?}");
         assert!(!s[0].angle_mode);
         // …but a pitch run is split where ANGLE switches on and the second part is tagged
         let d1p = seq(&[(1.0, 3300)]);
         let tp: Vec<f32> = (0..d1p.len()).map(|i| i as f32 / 2000.0).collect();
-        let flag: Vec<u32> = (0..d1p.len()).map(|i| (1 << BOXCHIRP_BIT) | if i >= 1650 { 1 << BOXANGLE_BIT } else { 0 }).collect();
+        let flag: Vec<u32> = (0..d1p.len())
+            .map(|i| (1 << BOXCHIRP_BIT) | if i >= 1650 { 1 << BOXANGLE_BIT } else { 0 })
+            .collect();
         let s = detect_segments(&tp, Some(&d1p), None, Some(&flag), 1024);
         assert_eq!(s.len(), 2, "{s:?}");
         assert!(!s[0].angle_mode && s[1].angle_mode);
@@ -199,7 +264,15 @@ mod tests {
     #[test]
     fn frequency_endpoints_from_debug2() {
         let d1 = seq(&[(-1.0, 10), (0.0, 3000), (-1.0, 10)]);
-        let d2: Vec<f32> = (0..d1.len()).map(|i| if (10..3010).contains(&i) { 2.0 + (i - 10) as f32 * 2.0 } else { 0.0 }).collect();
+        let d2: Vec<f32> = (0..d1.len())
+            .map(|i| {
+                if (10..3010).contains(&i) {
+                    2.0 + (i - 10) as f32 * 2.0
+                } else {
+                    0.0
+                }
+            })
+            .collect();
         let t: Vec<f32> = (0..d1.len()).map(|i| i as f32 / 2000.0).collect();
         let s = detect_segments(&t, Some(&d1), Some(&d2), None, 512);
         assert_eq!(s.len(), 1);

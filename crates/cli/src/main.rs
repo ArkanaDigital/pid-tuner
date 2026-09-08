@@ -53,7 +53,11 @@ fn main() -> Result<()> {
                 );
             }
         }
-        Cmd::Ingest { file, session, json } => {
+        Cmd::Ingest {
+            file,
+            session,
+            json,
+        } => {
             let bytes = std::fs::read(&file)?;
             let t0 = Instant::now();
             let log = log_ingest::ingest(&bytes, session)?;
@@ -64,7 +68,12 @@ fn main() -> Result<()> {
                 eprintln!("wrote {}", p.display());
             }
         }
-        Cmd::Analyze { file, session, json, pid_analyzer } => {
+        Cmd::Analyze {
+            file,
+            session,
+            json,
+            pid_analyzer,
+        } => {
             let bytes = std::fs::read(&file)?;
             let t0 = Instant::now();
             let log = log_ingest::ingest(&bytes, session)?;
@@ -120,7 +129,14 @@ fn main() -> Result<()> {
             if !bundle.anomalies.is_empty() {
                 println!("Anomalies:");
                 for a in &bundle.anomalies {
-                    println!("  {:<8} {:<22} {:>7.2}–{:<7.2} s  {}", format!("{:?}", a.severity).to_uppercase(), a.kind.title(), a.t_start_s, a.t_end_s, a.detail);
+                    println!(
+                        "  {:<8} {:<22} {:>7.2}–{:<7.2} s  {}",
+                        format!("{:?}", a.severity).to_uppercase(),
+                        a.kind.title(),
+                        a.t_start_s,
+                        a.t_end_s,
+                        a.detail
+                    );
                 }
             }
             let q = &bundle.quality;
@@ -155,16 +171,36 @@ fn print_log_summary(log: &domain::FlightLog) {
         log.meta.warnings
     );
     if !log.meta.msg_rates_hz.is_empty() {
-        let mut r: Vec<String> = log.meta.msg_rates_hz.iter().map(|(k, v)| format!("{k}={v:.0}")).collect();
+        let mut r: Vec<String> = log
+            .meta
+            .msg_rates_hz
+            .iter()
+            .map(|(k, v)| format!("{k}={v:.0}"))
+            .collect();
         r.sort();
-        println!("  msg rates Hz: {} | gyro_hr tracks: {} ({} batches)", r.join(" "), log.gyro_hr.len(), log.gyro_hr.iter().map(|t| t.batches.len()).sum::<usize>());
+        println!(
+            "  msg rates Hz: {} | gyro_hr tracks: {} ({} batches)",
+            r.join(" "),
+            log.gyro_hr.len(),
+            log.gyro_hr.iter().map(|t| t.batches.len()).sum::<usize>()
+        );
     }
     if let Some(c) = &log.chirp {
         if let Some(cfg) = &c.config {
             println!("  chirp: {:.1}→{:.0} Hz over {:.0} s, amplitude {:?} °/s, lag {:.0} Hz lead {:.0} Hz, debug signature {}", cfg.f_start_hz, cfg.f_end_hz, cfg.time_s, cfg.amplitude, cfg.lag_freq_hz, cfg.lead_freq_hz, c.debug_is_chirp);
         }
         for s in &c.segments {
-            println!("    {:<5} {:7.1}–{:7.1} s  {:6} samples  f {:.1}→{:.0} Hz  gate {:?}{}", s.axis.name(), s.t0_s, s.t1_s, s.i1 - s.i0, s.f_start_hz, s.f_end_hz, s.source, if s.angle_mode { "  ANGLE" } else { "" });
+            println!(
+                "    {:<5} {:7.1}–{:7.1} s  {:6} samples  f {:.1}→{:.0} Hz  gate {:?}{}",
+                s.axis.name(),
+                s.t0_s,
+                s.t1_s,
+                s.i1 - s.i0,
+                s.f_start_hz,
+                s.f_end_hz,
+                s.source,
+                if s.angle_mode { "  ANGLE" } else { "" }
+            );
         }
     }
     if let domain::Tune::Ap(t) = &log.tune_at_log {
@@ -177,7 +213,10 @@ fn print_log_summary(log: &domain::FlightLog) {
     if let domain::Tune::Bf(t) = &log.tune_at_log {
         for (k, name) in ["roll", "pitch", "yaw"].iter().enumerate() {
             let p = t.pids[k];
-            print!("  {name}: P{} I{} D{} Dmax{} FF{}", p.p, p.i, p.d, p.d_max, p.ff);
+            print!(
+                "  {name}: P{} I{} D{} Dmax{} FF{}",
+                p.p, p.i, p.d, p.d_max, p.ff
+            );
         }
         println!();
         let f = &t.filters;

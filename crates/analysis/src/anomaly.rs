@@ -51,8 +51,26 @@ impl Default for AnomalyOpts {
     }
 }
 
-fn mk(kind: AnomalyKind, severity: Severity, t0: f32, t1: f32, axis: Option<Axis>, motor: Option<usize>, value: f32, detail: String) -> Anomaly {
-    Anomaly { kind, severity, t_start_s: t0, t_end_s: t1, axis, motor, value, detail }
+fn mk(
+    kind: AnomalyKind,
+    severity: Severity,
+    t0: f32,
+    t1: f32,
+    axis: Option<Axis>,
+    motor: Option<usize>,
+    value: f32,
+    detail: String,
+) -> Anomaly {
+    Anomaly {
+        kind,
+        severity,
+        t_start_s: t0,
+        t_end_s: t1,
+        axis,
+        motor,
+        value,
+        detail,
+    }
 }
 
 /// Runs of consecutive `true` at least `min_len` long → (start, end) index pairs.
@@ -100,7 +118,11 @@ fn merge(mut v: Vec<Anomaly>, gap_s: f32) -> Vec<Anomaly> {
     let mut out: Vec<Anomaly> = Vec::new();
     for a in v {
         if let Some(last) = out.last_mut() {
-            if last.kind == a.kind && last.motor == a.motor && last.axis == a.axis && a.t_start_s - last.t_end_s <= gap_s {
+            if last.kind == a.kind
+                && last.motor == a.motor
+                && last.axis == a.axis
+                && a.t_start_s - last.t_end_s <= gap_s
+            {
                 last.t_end_s = last.t_end_s.max(a.t_end_s);
                 if a.severity > last.severity {
                     last.severity = a.severity;
@@ -139,8 +161,21 @@ pub fn detect(log: &FlightLog, airborne: Option<(f32, f32)>, opts: &AnomalyOpts)
             out.push(mk(AnomalyKind::LogGap, if d >= 0.5 { Severity::Critical } else { Severity::Warning }, a, b, None, None, d * 1000.0, format!("{:.0} ms of missing frames — logging device too slow for the rate (lower blackbox rate, faster SD card, or flash instead of SD).", d * 1000.0)));
         }
     }
-    if gap_total > 1.0 && out.iter().all(|a| a.kind != AnomalyKind::LogGap || a.severity < Severity::Critical) {
-        out.push(mk(AnomalyKind::LogGap, Severity::Critical, log.t[0], log.t[n - 1], None, None, gap_total * 1000.0, format!("{gap_total:.2} s of frames missing in total.")));
+    if gap_total > 1.0
+        && out
+            .iter()
+            .all(|a| a.kind != AnomalyKind::LogGap || a.severity < Severity::Critical)
+    {
+        out.push(mk(
+            AnomalyKind::LogGap,
+            Severity::Critical,
+            log.t[0],
+            log.t[n - 1],
+            None,
+            None,
+            gap_total * 1000.0,
+            format!("{gap_total:.2} s of frames missing in total."),
+        ));
     }
 
     // ---- gyro clipping / yaw spin / control reversed ------------------------
@@ -148,13 +183,24 @@ pub fn detect(log: &FlightLog, airborne: Option<(f32, f32)>, opts: &AnomalyOpts)
     for (k, ax) in log.axes.iter().enumerate() {
         let axis = Axis::ALL[k];
         let g = &ax.gyro_filt;
-        let clip: Vec<bool> = (i0..i1).map(|i| g[i].abs() >= opts.gyro_clip_dps || ax.gyro_raw.as_ref().map(|r| r[i].abs() >= opts.gyro_clip_dps).unwrap_or(false)).collect();
+        let clip: Vec<bool> = (i0..i1)
+            .map(|i| {
+                g[i].abs() >= opts.gyro_clip_dps
+                    || ax
+                        .gyro_raw
+                        .as_ref()
+                        .map(|r| r[i].abs() >= opts.gyro_clip_dps)
+                        .unwrap_or(false)
+            })
+            .collect();
         for (a, b) in runs(&clip, 3) {
             let peak = (a..b).map(|i| g[i0 + i].abs()).fold(0f32, f32::max);
             out.push(mk(AnomalyKind::GyroClipping, Severity::Warning, t(i0 + a), t(i0 + b), Some(axis), None, peak, format!("{} gyro at the sensor limit ({peak:.0} °/s) — crash, prop strike or a hit; data around here is unusable.", axis.name())));
         }
         if axis == Axis::Yaw {
-            let spin: Vec<bool> = (i0..i1).map(|i| g[i].abs() >= opts.yaw_spin_dps && ax.setpoint[i].abs() < 300.0).collect();
+            let spin: Vec<bool> = (i0..i1)
+                .map(|i| g[i].abs() >= opts.yaw_spin_dps && ax.setpoint[i].abs() < 300.0)
+                .collect();
             for (a, b) in runs(&spin, ((opts.yaw_spin_min_s * fs) as usize).max(2)) {
                 let peak = (a..b).map(|i| g[i0 + i].abs()).fold(0f32, f32::max);
                 out.push(mk(AnomalyKind::YawSpin, Severity::Critical, t(i0 + a), t(i0 + b), Some(axis), None, peak, format!("Un-commanded yaw rotation of {peak:.0} °/s for {:.0} ms — yaw spin (motor/ESC failure, prop loss or crash).", (b - a) as f32 / fs * 1000.0)));
@@ -182,7 +228,11 @@ pub fn detect(log: &FlightLog, airborne: Option<(f32, f32)>, opts: &AnomalyOpts)
 
     // ---- oscillation (0.5 s windows, hop 0.25 s) ------------------------------
     // CHIRP sweeps excite the setpoint on purpose; windows inside a sweep are skipped.
-    let chirp_ranges: Vec<(usize, usize)> = log.chirp.as_ref().map(|c| c.segments.iter().map(|s| (s.i0, s.i1)).collect()).unwrap_or_default();
+    let chirp_ranges: Vec<(usize, usize)> = log
+        .chirp
+        .as_ref()
+        .map(|c| c.segments.iter().map(|s| (s.i0, s.i1)).collect())
+        .unwrap_or_default();
     let in_chirp = |a: usize, b: usize| chirp_ranges.iter().any(|(x, y)| a < *y && b > *x);
     let win = ((0.5 * fs) as usize).max(16);
     let hop = win / 2;
@@ -199,13 +249,18 @@ pub fn detect(log: &FlightLog, airborne: Option<(f32, f32)>, opts: &AnomalyOpts)
                 s += hop;
                 continue;
             }
-            let err: Vec<f32> = (s..s + win).map(|i| ax.gyro_filt[i] - ax.setpoint[i]).collect();
+            let err: Vec<f32> = (s..s + win)
+                .map(|i| ax.gyro_filt[i] - ax.setpoint[i])
+                .collect();
             let sp_rms = rms(&ax.setpoint[s..s + win]);
             let e_rms = rms(&err);
             if e_rms >= opts.osc_rms_dps && sp_rms <= opts.osc_max_setpoint_rms_dps {
                 // dominant frequency from zero crossings of the error
                 let mean = err.iter().sum::<f32>() / err.len() as f32;
-                let zc = err.windows(2).filter(|p| (p[0] - mean).signum() != (p[1] - mean).signum()).count();
+                let zc = err
+                    .windows(2)
+                    .filter(|p| (p[0] - mean).signum() != (p[1] - mean).signum())
+                    .count();
                 let f = zc as f32 / 2.0 / (win as f32 / fs);
                 if (4.0..=200.0).contains(&f) {
                     mask[w] = true;
@@ -221,8 +276,18 @@ pub fn detect(log: &FlightLog, airborne: Option<(f32, f32)>, opts: &AnomalyOpts)
             let amp = amps[a..b].iter().cloned().fold(0f32, f32::max);
             let t0 = t(i0 + a * hop);
             let t1 = t(i0 + b * hop + win - hop);
-            let sev = if amp >= 3.0 * opts.osc_rms_dps { Severity::Critical } else { Severity::Warning };
-            let why = if f < 15.0 { "slow wobble — P too low or I-term/attitude issue" } else if f < 80.0 { "P/D oscillation — gains too high for this frame or filtering delay" } else { "fast oscillation — D-term noise / filter too loose" };
+            let sev = if amp >= 3.0 * opts.osc_rms_dps {
+                Severity::Critical
+            } else {
+                Severity::Warning
+            };
+            let why = if f < 15.0 {
+                "slow wobble — P too low or I-term/attitude issue"
+            } else if f < 80.0 {
+                "P/D oscillation — gains too high for this frame or filtering delay"
+            } else {
+                "fast oscillation — D-term noise / filter too loose"
+            };
             out.push(mk(AnomalyKind::Oscillation, sev, t0, t1, Some(axis), None, f, format!("{} oscillates at ≈{f:.0} Hz (error RMS {amp:.0} °/s) without stick input for {:.1} s — {why}.", axis.name(), t1 - t0)));
         }
     }
@@ -231,19 +296,35 @@ pub fn detect(log: &FlightLog, airborne: Option<(f32, f32)>, opts: &AnomalyOpts)
     let nm = log.motors.len();
     if nm >= 2 {
         let m = &log.motors;
-        let roll_pitch_hit = |a: usize, b: usize| -> f32 { (a..b).map(|i| log.axes[0].gyro_filt[i].abs().max(log.axes[1].gyro_filt[i].abs())).fold(0f32, f32::max) };
+        let roll_pitch_hit = |a: usize, b: usize| -> f32 {
+            (a..b)
+                .map(|i| {
+                    log.axes[0].gyro_filt[i]
+                        .abs()
+                        .max(log.axes[1].gyro_filt[i].abs())
+                })
+                .fold(0f32, f32::max)
+        };
         for k in 0..nm {
             let pinned: Vec<bool> = (i0..i1).map(|i| m[k][i] >= opts.motor_max).collect();
             for (a, b) in runs(&pinned, pin_len) {
                 let (s, e) = (i0 + a, i0 + b);
-                let others_mean = (s..e).map(|i| (0..nm).filter(|j| *j != k).map(|j| m[j][i]).sum::<f32>() / (nm - 1) as f32).sum::<f32>() / (e - s) as f32;
+                let others_mean = (s..e)
+                    .map(|i| {
+                        (0..nm).filter(|j| *j != k).map(|j| m[j][i]).sum::<f32>() / (nm - 1) as f32
+                    })
+                    .sum::<f32>()
+                    / (e - s) as f32;
                 let hit = roll_pitch_hit(s, e);
                 let rpm_collapse = log.erpm.as_ref().and_then(|r| {
                     if r.len() != nm {
                         return None;
                     }
                     let mine = (s..e).map(|i| r[k][i]).sum::<f32>() / (e - s) as f32;
-                    let mut others: Vec<f32> = (0..nm).filter(|j| *j != k).map(|j| (s..e).map(|i| r[j][i]).sum::<f32>() / (e - s) as f32).collect();
+                    let mut others: Vec<f32> = (0..nm)
+                        .filter(|j| *j != k)
+                        .map(|j| (s..e).map(|i| r[j][i]).sum::<f32>() / (e - s) as f32)
+                        .collect();
                     let med = median(&mut others);
                     (med > 1000.0).then_some(mine / med)
                 });
@@ -254,15 +335,21 @@ pub fn detect(log: &FlightLog, airborne: Option<(f32, f32)>, opts: &AnomalyOpts)
                     _ => out.push(mk(AnomalyKind::MotorSaturation, Severity::Warning, t(s), t(e), None, Some(k), dur_ms, format!("Motor {} at 100 % for {dur_ms:.0} ms — no headroom left (too heavy / low voltage / gains asking for more than the motor has).", k + 1))),
                 }
             }
-            let floor: Vec<bool> = (i0..i1).map(|i| m[k][i] <= opts.motor_floor && (0..nm).any(|j| m[j][i] > 0.5)).collect();
+            let floor: Vec<bool> = (i0..i1)
+                .map(|i| m[k][i] <= opts.motor_floor && (0..nm).any(|j| m[j][i] > 0.5))
+                .collect();
             for (a, b) in runs(&floor, pin_len) {
                 let dur_ms = (b - a) as f32 / fs * 1000.0;
                 out.push(mk(AnomalyKind::MotorFloor, Severity::Warning, t(i0 + a), t(i0 + b), None, Some(k), dur_ms, format!("Motor {} at the idle floor for {dur_ms:.0} ms while others were high — authority lost on the low side (raise idle, or D/P too high / prop wash).", k + 1)));
             }
         }
         // hover imbalance: motor means over the airborne range where throttle is near hover
-        let means: Vec<f32> = (0..nm).map(|k| m[k][i0..i1].iter().sum::<f32>() / (i1 - i0) as f32).collect();
-        let (lo, hi) = means.iter().fold((f32::MAX, f32::MIN), |(l, h), v| (l.min(*v), h.max(*v)));
+        let means: Vec<f32> = (0..nm)
+            .map(|k| m[k][i0..i1].iter().sum::<f32>() / (i1 - i0) as f32)
+            .collect();
+        let (lo, hi) = means
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(l, h), v| (l.min(*v), h.max(*v)));
         if hi - lo >= opts.imbalance_frac && hi > 0.1 {
             let kmax = means.iter().position(|v| *v == hi).unwrap();
             let kmin = means.iter().position(|v| *v == lo).unwrap();
@@ -282,7 +369,11 @@ pub fn detect(log: &FlightLog, airborne: Option<(f32, f32)>, opts: &AnomalyOpts)
                                 ms += m[k][i] as f64;
                             }
                         }
-                        if ms > 0.0 { (rs / ms) as f32 } else { 0.0 }
+                        if ms > 0.0 {
+                            (rs / ms) as f32
+                        } else {
+                            0.0
+                        }
                     })
                     .collect();
                 let mut sorted = ratio.clone();
@@ -296,7 +387,8 @@ pub fn detect(log: &FlightLog, airborne: Option<(f32, f32)>, opts: &AnomalyOpts)
                     }
                 }
                 for k in 0..nm {
-                    let drop: Vec<bool> = (i0..i1).map(|i| r[k][i] < 100.0 && m[k][i] > 0.2).collect();
+                    let drop: Vec<bool> =
+                        (i0..i1).map(|i| r[k][i] < 100.0 && m[k][i] > 0.2).collect();
                     for (a, b) in runs(&drop, pin_len) {
                         out.push(mk(AnomalyKind::RpmDropout, Severity::Warning, t(i0 + a), t(i0 + b), None, Some(k), (b - a) as f32 / fs * 1000.0, format!("Motor {} eRPM reads 0 for {:.0} ms while commanded — bidirectional DShot telemetry loss (ESC firmware, dshot rate, wiring) or the motor really stopped.", k + 1, (b - a) as f32 / fs * 1000.0)));
                     }
@@ -328,7 +420,11 @@ pub fn detect(log: &FlightLog, airborne: Option<(f32, f32)>, opts: &AnomalyOpts)
     }
 
     let mut out = merge(out, 0.2);
-    out.sort_by(|a, b| b.severity.cmp(&a.severity).then(a.t_start_s.partial_cmp(&b.t_start_s).unwrap()));
+    out.sort_by(|a, b| {
+        b.severity
+            .cmp(&a.severity)
+            .then(a.t_start_s.partial_cmp(&b.t_start_s).unwrap())
+    });
     out
 }
 
@@ -341,10 +437,18 @@ mod tests {
         let n = (fs * secs) as usize;
         let t: Vec<f32> = (0..n).map(|i| i as f32 / fs).collect();
         let z = vec![0f32; n];
-        let axes: [AxisSeries; 3] = std::array::from_fn(|_| AxisSeries { setpoint: z.clone(), gyro_filt: z.clone(), gyro_raw: Some(z.clone()), ..Default::default() });
+        let axes: [AxisSeries; 3] = std::array::from_fn(|_| AxisSeries {
+            setpoint: z.clone(),
+            gyro_filt: z.clone(),
+            gyro_raw: Some(z.clone()),
+            ..Default::default()
+        });
         FlightLog {
             id: LogId("t".into()),
-            firmware: Firmware::Betaflight { version: "4.5".into(), api: (1, 46) },
+            firmware: Firmware::Betaflight {
+                version: "4.5".into(),
+                api: (1, 46),
+            },
             fs_hz: fs as f64,
             t,
             axes,
@@ -378,10 +482,16 @@ mod tests {
         }
         log.erpm = Some(rpm);
         let a = detect(&log, None, &AnomalyOpts::default());
-        let d = a.iter().find(|x| x.kind == AnomalyKind::MotorDesync).expect("desync");
+        let d = a
+            .iter()
+            .find(|x| x.kind == AnomalyKind::MotorDesync)
+            .expect("desync");
         assert_eq!(d.severity, Severity::Critical);
         assert_eq!(d.motor, Some(2));
-        assert!((d.t_start_s - 3.0).abs() < 0.01 && (d.t_end_s - 3.3).abs() < 0.01, "{d:?}");
+        assert!(
+            (d.t_start_s - 3.0).abs() < 0.01 && (d.t_end_s - 3.3).abs() < 0.01,
+            "{d:?}"
+        );
         assert!(a.iter().all(|x| x.kind != AnomalyKind::MotorSaturation));
     }
 
@@ -396,7 +506,11 @@ mod tests {
             log.axes[0].gyro_filt[i] = 450.0;
         }
         let a = detect(&log, None, &AnomalyOpts::default());
-        assert!(a.iter().any(|x| x.kind == AnomalyKind::MotorDesync && x.motor == Some(0)), "{a:?}");
+        assert!(
+            a.iter()
+                .any(|x| x.kind == AnomalyKind::MotorDesync && x.motor == Some(0)),
+            "{a:?}"
+        );
         // plain saturation: others also high, no attitude hit
         let mut log = base(2000.0, 10.0);
         for i in 6000..6400 {
@@ -404,7 +518,9 @@ mod tests {
             log.motors[1][i] = 0.9;
         }
         let a = detect(&log, None, &AnomalyOpts::default());
-        assert!(a.iter().any(|x| x.kind == AnomalyKind::MotorSaturation && x.motor == Some(0)));
+        assert!(a
+            .iter()
+            .any(|x| x.kind == AnomalyKind::MotorSaturation && x.motor == Some(0)));
         assert!(a.iter().all(|x| x.kind != AnomalyKind::MotorDesync));
     }
 
@@ -425,16 +541,21 @@ mod tests {
             log.axes[1].gyro_filt[i] = 80.0 * (2.0 * std::f32::consts::PI * 30.0 * tt).sin();
         }
         let a = detect(&log, None, &AnomalyOpts::default());
-        let o = a.iter().find(|x| x.kind == AnomalyKind::Oscillation).expect("osc");
+        let o = a
+            .iter()
+            .find(|x| x.kind == AnomalyKind::Oscillation)
+            .expect("osc");
         assert_eq!(o.axis, Some(Axis::Pitch));
         assert!((o.value - 30.0).abs() < 3.0, "{}", o.value);
         assert_eq!(o.severity, Severity::Warning);
         assert!(o.t_start_s >= 1.7 && o.t_end_s <= 6.3, "{o:?}"); // ±1 hop (0.25 s)
-        // same movement but commanded by the sticks is not an oscillation
+                                                                  // same movement but commanded by the sticks is not an oscillation
         for i in 4000..12000 {
             log.axes[1].setpoint[i] = log.axes[1].gyro_filt[i];
         }
-        assert!(detect(&log, None, &AnomalyOpts::default()).iter().all(|x| x.kind != AnomalyKind::Oscillation));
+        assert!(detect(&log, None, &AnomalyOpts::default())
+            .iter()
+            .all(|x| x.kind != AnomalyKind::Oscillation));
     }
 
     #[test]
@@ -459,11 +580,24 @@ mod tests {
         }
         let a = detect(&log, None, &AnomalyOpts::default());
         let kinds: Vec<AnomalyKind> = a.iter().map(|x| x.kind).collect();
-        for k in [AnomalyKind::GyroClipping, AnomalyKind::YawSpin, AnomalyKind::ControlReversed, AnomalyKind::LogGap, AnomalyKind::MotorImbalance, AnomalyKind::Vibration] {
+        for k in [
+            AnomalyKind::GyroClipping,
+            AnomalyKind::YawSpin,
+            AnomalyKind::ControlReversed,
+            AnomalyKind::LogGap,
+            AnomalyKind::MotorImbalance,
+            AnomalyKind::Vibration,
+        ] {
             assert!(kinds.contains(&k), "missing {k:?} in {kinds:?}");
         }
         assert_eq!(a[0].severity, Severity::Critical, "sorted critical first");
-        assert!(a.iter().find(|x| x.kind == AnomalyKind::MotorImbalance).unwrap().motor == Some(3));
+        assert!(
+            a.iter()
+                .find(|x| x.kind == AnomalyKind::MotorImbalance)
+                .unwrap()
+                .motor
+                == Some(3)
+        );
     }
 
     #[test]
@@ -479,7 +613,15 @@ mod tests {
         }
         log.erpm = Some(rpm);
         let a = detect(&log, None, &AnomalyOpts::default());
-        assert!(a.iter().any(|x| x.kind == AnomalyKind::RpmImbalance && x.motor == Some(1)), "{a:?}");
-        assert!(a.iter().any(|x| x.kind == AnomalyKind::RpmDropout && x.motor == Some(0)), "{a:?}");
+        assert!(
+            a.iter()
+                .any(|x| x.kind == AnomalyKind::RpmImbalance && x.motor == Some(1)),
+            "{a:?}"
+        );
+        assert!(
+            a.iter()
+                .any(|x| x.kind == AnomalyKind::RpmDropout && x.motor == Some(0)),
+            "{a:?}"
+        );
     }
 }

@@ -42,7 +42,16 @@ fn spawn_reader<R: Read + Send + 'static>(reader: R, tx: SyncSender<Frame>) {
                         }
                     }
                     // Timeouts (serial read timeout) and parse errors (unknown id / bad crc): keep reading.
-                    Err(MessageReadError::Io(e)) if matches!(e.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted) => continue,
+                    Err(MessageReadError::Io(e))
+                        if matches!(
+                            e.kind(),
+                            std::io::ErrorKind::TimedOut
+                                | std::io::ErrorKind::WouldBlock
+                                | std::io::ErrorKind::Interrupted
+                        ) =>
+                    {
+                        continue
+                    }
                     Err(MessageReadError::Parse(_)) => continue,
                     Err(MessageReadError::Io(_)) => return, // port gone
                 }
@@ -53,9 +62,16 @@ fn spawn_reader<R: Read + Send + 'static>(reader: R, tx: SyncSender<Frame>) {
 
 impl<W: Write + Send> Link for IoLink<W> {
     fn send(&mut self, msg: &MavMessage) -> Result<(), FcError> {
-        let header = MavHeader { system_id: crate::GCS_SYSTEM_ID, component_id: crate::GCS_COMPONENT_ID, sequence: self.seq.fetch_add(1, Ordering::Relaxed) };
-        write_versioned_msg(&mut self.writer, MavlinkVersion::V2, header, msg).map_err(|e| FcError::Other(format!("mavlink write: {e:?}")))?;
-        self.writer.flush().map_err(|e| FcError::Other(format!("mavlink flush: {e}")))?;
+        let header = MavHeader {
+            system_id: crate::GCS_SYSTEM_ID,
+            component_id: crate::GCS_COMPONENT_ID,
+            sequence: self.seq.fetch_add(1, Ordering::Relaxed),
+        };
+        write_versioned_msg(&mut self.writer, MavlinkVersion::V2, header, msg)
+            .map_err(|e| FcError::Other(format!("mavlink write: {e:?}")))?;
+        self.writer
+            .flush()
+            .map_err(|e| FcError::Other(format!("mavlink flush: {e}")))?;
         Ok(())
     }
 
@@ -81,10 +97,17 @@ impl SerialLink {
             .timeout(Duration::from_millis(100))
             .open()
             .map_err(|e| FcError::Other(format!("open {port}: {e}")))?;
-        let wr = rd.try_clone().map_err(|e| FcError::Other(format!("clone {port}: {e}")))?;
+        let wr = rd
+            .try_clone()
+            .map_err(|e| FcError::Other(format!("clone {port}: {e}")))?;
         let (tx, rx) = sync_channel(8192);
         spawn_reader(rd, tx);
-        Ok(Self(IoLink { name: port.to_string(), writer: wr, rx, seq: Arc::new(AtomicU8::new(0)) }))
+        Ok(Self(IoLink {
+            name: port.to_string(),
+            writer: wr,
+            rx,
+            seq: Arc::new(AtomicU8::new(0)),
+        }))
     }
 }
 
@@ -105,13 +128,19 @@ pub struct TcpLink(IoLink<std::net::TcpStream>);
 
 impl TcpLink {
     pub fn connect(addr: &str) -> Result<Self, FcError> {
-        let s = std::net::TcpStream::connect(addr).map_err(|e| FcError::Other(format!("connect {addr}: {e}")))?;
+        let s = std::net::TcpStream::connect(addr)
+            .map_err(|e| FcError::Other(format!("connect {addr}: {e}")))?;
         s.set_read_timeout(Some(Duration::from_millis(100))).ok();
         s.set_nodelay(true).ok();
         let rd = s.try_clone().map_err(|e| FcError::Other(e.to_string()))?;
         let (tx, rx) = sync_channel(8192);
         spawn_reader(rd, tx);
-        Ok(Self(IoLink { name: addr.to_string(), writer: s, rx, seq: Arc::new(AtomicU8::new(0)) }))
+        Ok(Self(IoLink {
+            name: addr.to_string(),
+            writer: s,
+            rx,
+            seq: Arc::new(AtomicU8::new(0)),
+        }))
     }
 }
 

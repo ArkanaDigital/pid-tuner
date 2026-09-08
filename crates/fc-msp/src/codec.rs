@@ -38,7 +38,14 @@ pub struct Frame {
 
 impl fmt::Display for Frame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "MSP{} cmd={} len={}{}", if self.v2 { "v2" } else { "v1" }, self.cmd, self.payload.len(), if self.error { " ERR" } else { "" })
+        write!(
+            f,
+            "MSP{} cmd={} len={}{}",
+            if self.v2 { "v2" } else { "v1" },
+            self.cmd,
+            self.payload.len(),
+            if self.error { " ERR" } else { "" }
+        )
     }
 }
 
@@ -113,6 +120,7 @@ impl Parser {
 
     /// Pull the next complete frame, discarding garbage. `Err(Checksum)` is
     /// returned once per corrupt frame so the caller can retry.
+    #[allow(clippy::should_implement_trait)] // fallible, not an Iterator
     pub fn next(&mut self) -> Result<Option<Frame>, MspError> {
         loop {
             match self.scan() {
@@ -137,7 +145,9 @@ impl Parser {
         if b.is_empty() {
             return Scan::Need;
         }
-        let Some(start) = b.iter().position(|c| *c == b'$') else { return Scan::Skip(b.len()) };
+        let Some(start) = b.iter().position(|c| *c == b'$') else {
+            return Scan::Skip(b.len());
+        };
         if start > 0 {
             return Scan::Skip(start);
         }
@@ -164,7 +174,15 @@ impl Parser {
                 if ck != b[5 + size] {
                     return Scan::Bad(1);
                 }
-                Scan::Frame(Frame { cmd: cmd as u16, payload: payload.to_vec(), error: dir == b'!', v2: false }, total)
+                Scan::Frame(
+                    Frame {
+                        cmd: cmd as u16,
+                        payload: payload.to_vec(),
+                        error: dir == b'!',
+                        v2: false,
+                    },
+                    total,
+                )
             }
             b'X' => {
                 if b.len() < 9 {
@@ -183,7 +201,12 @@ impl Parser {
                     return Scan::Bad(1);
                 }
                 Scan::Frame(
-                    Frame { cmd, payload: b[8..8 + size].to_vec(), error: dir == b'!' || flag & 1 != 0, v2: true },
+                    Frame {
+                        cmd,
+                        payload: b[8..8 + size].to_vec(),
+                        error: dir == b'!' || flag & 1 != 0,
+                        v2: true,
+                    },
                     total,
                 )
             }

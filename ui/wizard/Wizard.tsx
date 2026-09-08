@@ -3,6 +3,7 @@ import { run, useStore } from "../lib/store";
 import GuardList from "./GuardList";
 import { StepPanel } from "./steps";
 import { FcBadge } from "./fcsteps";
+import AiPanel from "../ai/AiPanel";
 import { useEffect } from "react";
 import type { Step } from "../lib/types";
 
@@ -60,8 +61,10 @@ export default function Wizard() {
         <span className="spacer" />
         {s.busy && <span className="busy">{s.busy}</span>}
         {s.error && <span className="error">{s.error}</span>}
+        <button className="small" onClick={() => s.setAi({ open: !s.ai.open })}>{s.ai.open ? "Sembunyikan AI" : "AI helper"}</button>
+        <button className="small" onClick={() => s.set({ prevView: "wizard", view: "settings" })}>⚙</button>
       </header>
-      <div className="wizard-body">
+      <div className={`wizard-body ${s.ai.open ? "with-ai" : ""}`}>
         <aside className="stepper">
           {snap.steps.map((st, i) => (
             <button
@@ -81,6 +84,7 @@ export default function Wizard() {
         <aside className="guard-pane">
           <h3>Before you continue</h3>
           <GuardList guards={cur.guards} />
+          {s.ai.open && <AiPanel scope="session" step={cur.step} />}
           <div className="nav">
             <button onClick={back} disabled={!snap.can_back || !!s.busy}>← Back</button>
             <button className="primary" onClick={next} disabled={!snap.can_next || !!s.busy}>

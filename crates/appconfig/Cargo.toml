@@ -1,0 +1,20 @@
+[package]
+name = "appconfig"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+blake3 = { workspace = true }
+chacha20poly1305 = "0.11"
+machine-uid = "0.6"
+base64 = "0.22"
+
+[dev-dependencies]
+tempfile = "3"

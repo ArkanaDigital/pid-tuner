@@ -31,13 +31,24 @@ fn triple(h: &BTreeMap<String, String>, key: &str) -> Option<[f32; 3]> {
 impl RatesProfile {
     pub fn from_headers(h: &BTreeMap<String, String>) -> Option<Self> {
         Some(Self {
-            rates_type: h.get("rates_type").and_then(|v| v.parse().ok()).unwrap_or(0),
+            rates_type: h
+                .get("rates_type")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0),
             rc_rates: triple(h, "rc_rates")?,
             rc_expo: triple(h, "rc_expo")?,
             rates: triple(h, "rates")?,
-            rate_limits: triple(h, "rate_limits").or_else(|| triple(h, "rate_limit")).unwrap_or([1998.0; 3]),
-            deadband: h.get("deadband").and_then(|v| v.parse().ok()).unwrap_or(0.0),
-            yaw_deadband: h.get("yaw_deadband").and_then(|v| v.parse().ok()).unwrap_or(0.0),
+            rate_limits: triple(h, "rate_limits")
+                .or_else(|| triple(h, "rate_limit"))
+                .unwrap_or([1998.0; 3]),
+            deadband: h
+                .get("deadband")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0.0),
+            yaw_deadband: h
+                .get("yaw_deadband")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0.0),
         })
     }
 
@@ -58,7 +69,11 @@ impl RatesProfile {
 
     /// `rcCommand[axis]` (−500..500 after deadband, as logged) → angle rate in °/s.
     pub fn setpoint(&self, axis: usize, rc_command: f32) -> f32 {
-        let divider = if axis == 2 { 500.0 - self.yaw_deadband } else { 500.0 - self.deadband };
+        let divider = if axis == 2 {
+            500.0 - self.yaw_deadband
+        } else {
+            500.0 - self.deadband
+        };
         let rcf = (rc_command / divider).clamp(-1.0, 1.0);
         let abs = rcf.abs();
         let rate = match self.rates_type {
@@ -83,7 +98,8 @@ impl RatesProfile {
                 }
                 let mut angle = 200.0 * rc_rate * r;
                 if self.rates[axis] != 0.0 {
-                    let superfactor = 1.0 / (1.0 - abs * (self.rates[axis] / 100.0)).clamp(0.01, 1.0);
+                    let superfactor =
+                        1.0 / (1.0 - abs * (self.rates[axis] / 100.0)).clamp(0.01, 1.0);
                     angle *= superfactor;
                 }
                 angle
@@ -98,39 +114,78 @@ mod tests {
     use super::*;
 
     fn hdr(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn actual_rates_match_rc_c() {
         // the user's 2026.6.1 log: rc_rates 12,7,13  rc_expo 30,30,35  rates 67,67,67  ACTUAL
-        let p = RatesProfile::from_headers(&hdr(&[("rates_type", "3"), ("rc_rates", "12,7,13"), ("rc_expo", "30,30,35"), ("rates", "67,67,67"), ("rate_limits", "1998,1998,1998"), ("deadband", "0"), ("yaw_deadband", "0")])).unwrap();
+        let p = RatesProfile::from_headers(&hdr(&[
+            ("rates_type", "3"),
+            ("rc_rates", "12,7,13"),
+            ("rc_expo", "30,30,35"),
+            ("rates", "67,67,67"),
+            ("rate_limits", "1998,1998,1998"),
+            ("deadband", "0"),
+            ("yaw_deadband", "0"),
+        ]))
+        .unwrap();
         assert!((p.setpoint(0, 500.0) - 670.0).abs() < 1e-3); // full stick = rates×10
         assert!((p.setpoint(0, -500.0) + 670.0).abs() < 1e-3);
         // half stick: expof = 0.5·(0.5⁵·0.3 + 0.5·0.7) = 0.1796875 → 60 + 550·0.1796875
-        assert!((p.setpoint(0, 250.0) - 158.828125).abs() < 1e-3);
+        assert!((p.setpoint(0, 250.0) - 158.828_13).abs() < 1e-3);
         // small stick ≈ centre sensitivity slope (rc_rate×10 °/s per full deflection)
-        assert!((p.setpoint(1, 5.0) - (0.01 * 70.0 + 600.0 * 0.01 * (0.01f32.powi(5) * 0.3 + 0.01 * 0.7))).abs() < 1e-4);
+        assert!(
+            (p.setpoint(1, 5.0)
+                - (0.01 * 70.0 + 600.0 * 0.01 * (0.01f32.powi(5) * 0.3 + 0.01 * 0.7)))
+                .abs()
+                < 1e-4
+        );
         assert!((p.setpoint(2, 500.0) - 670.0).abs() < 1e-3);
     }
 
     #[test]
     fn betaflight_rates_match_rc_c() {
-        let p = RatesProfile::from_headers(&hdr(&[("rates_type", "0"), ("rc_rates", "100,100,100"), ("rc_expo", "0,0,0"), ("rates", "70,70,70"), ("rate_limits", "1998,1998,1998")])).unwrap();
+        let p = RatesProfile::from_headers(&hdr(&[
+            ("rates_type", "0"),
+            ("rc_rates", "100,100,100"),
+            ("rc_expo", "0,0,0"),
+            ("rates", "70,70,70"),
+            ("rate_limits", "1998,1998,1998"),
+        ]))
+        .unwrap();
         // 200·1.0·1 × 1/(1−0.7)
         assert!((p.setpoint(0, 500.0) - 666.6667).abs() < 1e-2);
         assert!((p.setpoint(0, 0.0)).abs() < 1e-6);
         // rate_limit clamps
-        let q = RatesProfile { rate_limits: [400.0; 3], ..p };
+        let q = RatesProfile {
+            rate_limits: [400.0; 3],
+            ..p
+        };
         assert_eq!(q.setpoint(0, 500.0), 400.0);
     }
 
     #[test]
     fn deadband_widens_divider_and_unknown_types_are_flagged() {
-        let p = RatesProfile::from_headers(&hdr(&[("rates_type", "3"), ("rc_rates", "10,10,10"), ("rc_expo", "0,0,0"), ("rates", "50,50,50"), ("deadband", "10"), ("yaw_deadband", "20")])).unwrap();
+        let p = RatesProfile::from_headers(&hdr(&[
+            ("rates_type", "3"),
+            ("rc_rates", "10,10,10"),
+            ("rc_expo", "0,0,0"),
+            ("rates", "50,50,50"),
+            ("deadband", "10"),
+            ("yaw_deadband", "20"),
+        ]))
+        .unwrap();
         assert!((p.setpoint(0, 490.0) - 500.0).abs() < 1e-3);
         assert!((p.setpoint(2, 480.0) - 500.0).abs() < 1e-3);
-        assert!(!RatesProfile { rates_type: 4, ..p.clone() }.supported());
+        assert!(!RatesProfile {
+            rates_type: 4,
+            ..p.clone()
+        }
+        .supported());
         assert!(RatesProfile { rates_type: 0, ..p }.supported());
     }
 }

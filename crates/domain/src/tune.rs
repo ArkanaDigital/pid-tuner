@@ -241,9 +241,27 @@ impl Default for BfTune {
     fn default() -> Self {
         Self {
             pids: [
-                BfAxisPid { p: 45, i: 80, d: 30, ff: 120, d_max: 40 },
-                BfAxisPid { p: 47, i: 84, d: 34, ff: 125, d_max: 46 },
-                BfAxisPid { p: 45, i: 80, d: 0, ff: 120, d_max: 0 },
+                BfAxisPid {
+                    p: 45,
+                    i: 80,
+                    d: 30,
+                    ff: 120,
+                    d_max: 40,
+                },
+                BfAxisPid {
+                    p: 47,
+                    i: 84,
+                    d: 34,
+                    ff: 125,
+                    d_max: 46,
+                },
+                BfAxisPid {
+                    p: 45,
+                    i: 80,
+                    d: 0,
+                    ff: 120,
+                    d_max: 0,
+                },
             ],
             d_max_gain: 37,
             d_max_advance: 20,
@@ -293,13 +311,21 @@ impl BfTune {
     /// CLI name of the "Derivative" gain for an axis (0 roll, 1 pitch, 2 yaw).
     pub fn cli_d_name(&self, axis: usize) -> String {
         let ax = ["roll", "pitch", "yaw"][axis.min(2)];
-        if self.legacy_d_naming() { format!("d_min_{ax}") } else { format!("d_{ax}") }
+        if self.legacy_d_naming() {
+            format!("d_min_{ax}")
+        } else {
+            format!("d_{ax}")
+        }
     }
 
     /// CLI name of the "D Max" gain for an axis.
     pub fn cli_d_max_name(&self, axis: usize) -> String {
         let ax = ["roll", "pitch", "yaw"][axis.min(2)];
-        if self.legacy_d_naming() { format!("d_{ax}") } else { format!("d_max_{ax}") }
+        if self.legacy_d_naming() {
+            format!("d_{ax}")
+        } else {
+            format!("d_max_{ax}")
+        }
     }
 }
 

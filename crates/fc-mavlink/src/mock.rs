@@ -36,12 +36,46 @@ pub struct MockState {
 
 impl MockState {
     pub fn copter_4_5_5() -> Self {
-        let mut s = Self { version: 4 << 24 | 5 << 16 | 5 << 8 | 255, ..Default::default() };
-        let f = |v: f32| MockParam { value: v, ptype: MavParamType::MAV_PARAM_TYPE_REAL32, read_only: false };
-        let i32_ = |v: f32| MockParam { value: v, ptype: MavParamType::MAV_PARAM_TYPE_INT32, read_only: false };
-        let i8_ = |v: f32| MockParam { value: v, ptype: MavParamType::MAV_PARAM_TYPE_INT8, read_only: false };
-        let i16_ = |v: f32| MockParam { value: v, ptype: MavParamType::MAV_PARAM_TYPE_INT16, read_only: false };
-        for (k, v) in [("ATC_RAT_RLL_P", 0.135), ("ATC_RAT_RLL_I", 0.135), ("ATC_RAT_RLL_D", 0.0036), ("ATC_RAT_PIT_P", 0.135), ("ATC_RAT_PIT_I", 0.135), ("ATC_RAT_PIT_D", 0.0036), ("ATC_RAT_YAW_P", 0.18), ("ATC_RAT_YAW_I", 0.018), ("ATC_RAT_YAW_D", 0.0), ("ATC_RAT_RLL_FLTD", 20.0), ("ATC_RAT_RLL_FLTT", 20.0), ("MOT_THST_HOVER", 0.35), ("AUTOTUNE_AGGR", 0.1), ("AUTOTUNE_MIN_D", 0.001)] {
+        let mut s = Self {
+            version: 4 << 24 | 5 << 16 | 5 << 8 | 255,
+            ..Default::default()
+        };
+        let f = |v: f32| MockParam {
+            value: v,
+            ptype: MavParamType::MAV_PARAM_TYPE_REAL32,
+            read_only: false,
+        };
+        let i32_ = |v: f32| MockParam {
+            value: v,
+            ptype: MavParamType::MAV_PARAM_TYPE_INT32,
+            read_only: false,
+        };
+        let i8_ = |v: f32| MockParam {
+            value: v,
+            ptype: MavParamType::MAV_PARAM_TYPE_INT8,
+            read_only: false,
+        };
+        let i16_ = |v: f32| MockParam {
+            value: v,
+            ptype: MavParamType::MAV_PARAM_TYPE_INT16,
+            read_only: false,
+        };
+        for (k, v) in [
+            ("ATC_RAT_RLL_P", 0.135),
+            ("ATC_RAT_RLL_I", 0.135),
+            ("ATC_RAT_RLL_D", 0.0036),
+            ("ATC_RAT_PIT_P", 0.135),
+            ("ATC_RAT_PIT_I", 0.135),
+            ("ATC_RAT_PIT_D", 0.0036),
+            ("ATC_RAT_YAW_P", 0.18),
+            ("ATC_RAT_YAW_I", 0.018),
+            ("ATC_RAT_YAW_D", 0.0),
+            ("ATC_RAT_RLL_FLTD", 20.0),
+            ("ATC_RAT_RLL_FLTT", 20.0),
+            ("MOT_THST_HOVER", 0.35),
+            ("AUTOTUNE_AGGR", 0.1),
+            ("AUTOTUNE_MIN_D", 0.001),
+        ] {
             s.params.insert(k.into(), f(v));
         }
         s.params.insert("LOG_BITMASK".into(), i32_(180222.0));
@@ -53,8 +87,22 @@ impl MockState {
         s.params.insert("INS_LOG_BAT_LGIN".into(), i8_(20.0));
         s.params.insert("INS_HNTCH_ENABLE".into(), i8_(0.0));
         s.params.insert("AUTOTUNE_AXES".into(), i8_(7.0));
-        s.params.insert("FORMAT_VERSION".into(), MockParam { value: 120.0, ptype: MavParamType::MAV_PARAM_TYPE_INT16, read_only: true });
-        for (n, v) in [("INS_HNTCH_MODE", 1.0), ("INS_HNTCH_FREQ", 80.0), ("INS_HNTCH_BW", 40.0), ("INS_HNTCH_ATT", 40.0), ("INS_HNTCH_REF", 0.0), ("INS_HNTCH_HMNCS", 3.0)] {
+        s.params.insert(
+            "FORMAT_VERSION".into(),
+            MockParam {
+                value: 120.0,
+                ptype: MavParamType::MAV_PARAM_TYPE_INT16,
+                read_only: true,
+            },
+        );
+        for (n, v) in [
+            ("INS_HNTCH_MODE", 1.0),
+            ("INS_HNTCH_FREQ", 80.0),
+            ("INS_HNTCH_BW", 40.0),
+            ("INS_HNTCH_ATT", 40.0),
+            ("INS_HNTCH_REF", 0.0),
+            ("INS_HNTCH_HMNCS", 3.0),
+        ] {
             s.gated.push(("INS_HNTCH_ENABLE".into(), n.into(), f(v)));
         }
         s
@@ -78,20 +126,49 @@ pub struct MockFc {
 
 impl MockFc {
     pub fn new(state: MockState) -> Self {
-        Self { state: Arc::new(Mutex::new(state)), out: VecDeque::new(), last_hb: Instant::now() - Duration::from_secs(1), seq: 0, listing: None, sending: None, alive: true }
+        Self {
+            state: Arc::new(Mutex::new(state)),
+            out: VecDeque::new(),
+            last_hb: Instant::now() - Duration::from_secs(1),
+            seq: 0,
+            listing: None,
+            sending: None,
+            alive: true,
+        }
     }
 
     pub fn shared(state: Arc<Mutex<MockState>>) -> Self {
-        Self { state, out: VecDeque::new(), last_hb: Instant::now() - Duration::from_secs(1), seq: 0, listing: None, sending: None, alive: true }
+        Self {
+            state,
+            out: VecDeque::new(),
+            last_hb: Instant::now() - Duration::from_secs(1),
+            seq: 0,
+            listing: None,
+            sending: None,
+            alive: true,
+        }
     }
 
     fn push(&mut self, m: MavMessage) {
         self.seq = self.seq.wrapping_add(1);
-        self.out.push_back((MavHeader { system_id: 1, component_id: 1, sequence: self.seq }, m));
+        self.out.push_back((
+            MavHeader {
+                system_id: 1,
+                component_id: 1,
+                sequence: self.seq,
+            },
+            m,
+        ));
     }
 
     fn param_value(&self, name: &str, p: &MockParam, index: u16, count: u16) -> MavMessage {
-        MavMessage::PARAM_VALUE(PARAM_VALUE_DATA { param_value: p.value, param_count: count, param_index: index, param_id: param_id(name), param_type: p.ptype })
+        MavMessage::PARAM_VALUE(PARAM_VALUE_DATA {
+            param_value: p.value,
+            param_count: count,
+            param_index: index,
+            param_id: param_id(name),
+            param_type: p.ptype,
+        })
     }
 
     fn heartbeat(&self) -> MavMessage {
@@ -100,7 +177,14 @@ impl MockFc {
         if armed {
             base |= MavModeFlag::MAV_MODE_FLAG_SAFETY_ARMED;
         }
-        MavMessage::HEARTBEAT(HEARTBEAT_DATA { custom_mode: 2, mavtype: MavType::MAV_TYPE_QUADROTOR, autopilot: MavAutopilot::MAV_AUTOPILOT_ARDUPILOTMEGA, base_mode: base, system_status: MavState::MAV_STATE_STANDBY, mavlink_version: 3 })
+        MavMessage::HEARTBEAT(HEARTBEAT_DATA {
+            custom_mode: 2,
+            mavtype: MavType::MAV_TYPE_QUADROTOR,
+            autopilot: MavAutopilot::MAV_AUTOPILOT_ARDUPILOTMEGA,
+            base_mode: base,
+            system_status: MavState::MAV_STATE_STANDBY,
+            mavlink_version: 3,
+        })
     }
 
     fn handle(&mut self, msg: &MavMessage) {
@@ -108,7 +192,11 @@ impl MockFc {
             MavMessage::PARAM_REQUEST_LIST(_) => {
                 let (names, count, drops) = {
                     let s = self.state.lock().unwrap();
-                    (s.visible_names(), s.params.len() as u16, s.drop_list_indices.clone())
+                    (
+                        s.visible_names(),
+                        s.params.len() as u16,
+                        s.drop_list_indices.clone(),
+                    )
                 };
                 self.state.lock().unwrap().drop_list_indices.clear();
                 for (i, n) in names.iter().enumerate() {
@@ -125,7 +213,9 @@ impl MockFc {
                 let names = s.visible_names();
                 let count = names.len() as u16;
                 let found = if r.param_index >= 0 {
-                    names.get(r.param_index as usize).map(|n| (n.clone(), s.params[n].clone(), r.param_index as u16))
+                    names
+                        .get(r.param_index as usize)
+                        .map(|n| (n.clone(), s.params[n].clone(), r.param_index as u16))
                 } else {
                     let n = name_of(&r.param_id);
                     s.params.get(&n).map(|p| (n.clone(), p.clone(), u16::MAX))
@@ -139,7 +229,13 @@ impl MockFc {
                     None => {
                         // GCS_Param.cpp: unknown → value NaN, index echoed
                         let n = name_of(&r.param_id);
-                        self.push(MavMessage::PARAM_VALUE(PARAM_VALUE_DATA { param_value: f32::NAN, param_count: count, param_index: r.param_index as u16, param_id: param_id(&n), param_type: MavParamType::MAV_PARAM_TYPE_REAL32 }));
+                        self.push(MavMessage::PARAM_VALUE(PARAM_VALUE_DATA {
+                            param_value: f32::NAN,
+                            param_count: count,
+                            param_index: r.param_index as u16,
+                            param_id: param_id(&n),
+                            param_type: MavParamType::MAV_PARAM_TYPE_REAL32,
+                        }));
                     }
                 }
             }
@@ -147,8 +243,11 @@ impl MockFc {
                 let n = name_of(&ps.param_id);
                 let mut s = self.state.lock().unwrap();
                 let count = s.params.len() as u16;
-                s.param_sets.push((n.clone(), ps.param_value, ps.param_type));
-                let Some(p) = s.params.get_mut(&n) else { return }; // unknown: silence (PARAM_ERROR in new firmware)
+                s.param_sets
+                    .push((n.clone(), ps.param_value, ps.param_type));
+                let Some(p) = s.params.get_mut(&n) else {
+                    return;
+                }; // unknown: silence (PARAM_ERROR in new firmware)
                 if p.read_only {
                     let p = p.clone();
                     drop(s);
@@ -193,7 +292,10 @@ impl MockFc {
                     }
                     MavCmd::MAV_CMD_REQUEST_MESSAGE if c.param1 == 148.0 => {
                         let v = self.state.lock().unwrap().version;
-                        self.push(MavMessage::AUTOPILOT_VERSION(AUTOPILOT_VERSION_DATA { flight_sw_version: v, ..Default::default() }));
+                        self.push(MavMessage::AUTOPILOT_VERSION(AUTOPILOT_VERSION_DATA {
+                            flight_sw_version: v,
+                            ..Default::default()
+                        }));
                         MavResult::MAV_RESULT_ACCEPTED
                     }
                     MavCmd::MAV_CMD_DO_SEND_BANNER => {
@@ -201,12 +303,18 @@ impl MockFc {
                         for (i, b) in b"ArduCopter V4.5.5 (deadbeef)".iter().enumerate() {
                             t[i] = *b;
                         }
-                        self.push(MavMessage::STATUSTEXT(STATUSTEXT_DATA { severity: MavSeverity::MAV_SEVERITY_INFO, text: t.into(), ..Default::default() }));
+                        self.push(MavMessage::STATUSTEXT(STATUSTEXT_DATA {
+                            severity: MavSeverity::MAV_SEVERITY_INFO,
+                            text: t.into(),
+                        }));
                         MavResult::MAV_RESULT_ACCEPTED
                     }
                     _ => MavResult::MAV_RESULT_UNSUPPORTED,
                 };
-                self.push(MavMessage::COMMAND_ACK(COMMAND_ACK_DATA { command: c.command, result, ..Default::default() }));
+                self.push(MavMessage::COMMAND_ACK(COMMAND_ACK_DATA {
+                    command: c.command,
+                    result,
+                }));
                 if !self.alive {
                     // reboot: come back 100 ms later as a fresh instance
                     std::thread::sleep(Duration::from_millis(100));
@@ -217,7 +325,13 @@ impl MockFc {
             MavMessage::LOG_REQUEST_LIST(r) => {
                 let n = self.state.lock().unwrap().logs.len() as u16;
                 if n == 0 {
-                    self.push(MavMessage::LOG_ENTRY(LOG_ENTRY_DATA { time_utc: 0, size: 0, id: 0, num_logs: 0, last_log_num: 0 }));
+                    self.push(MavMessage::LOG_ENTRY(LOG_ENTRY_DATA {
+                        time_utc: 0,
+                        size: 0,
+                        id: 0,
+                        num_logs: 0,
+                        last_log_num: 0,
+                    }));
                 } else {
                     let start = r.start.max(1);
                     let end = r.end.min(n);
@@ -232,7 +346,11 @@ impl MockFc {
                 }
                 let size = s.logs[r.id as usize - 1].len() as u32;
                 drop(s);
-                let remaining = if r.ofs >= size { 0 } else { (size - r.ofs).min(r.count) };
+                let remaining = if r.ofs >= size {
+                    0
+                } else {
+                    (size - r.ofs).min(r.count)
+                };
                 self.sending = Some((r.id, r.ofs, remaining));
             }
             MavMessage::LOG_REQUEST_END(_) => self.sending = None,
@@ -247,8 +365,18 @@ impl MockFc {
                 let s = self.state.lock().unwrap();
                 (s.logs.len() as u16, s.logs[next as usize - 1].len() as u32)
             };
-            self.push(MavMessage::LOG_ENTRY(LOG_ENTRY_DATA { time_utc: 1_700_000_000 + next as u32, size, id: next, num_logs: n, last_log_num: n }));
-            self.listing = if next >= last { None } else { Some((next + 1, last)) };
+            self.push(MavMessage::LOG_ENTRY(LOG_ENTRY_DATA {
+                time_utc: 1_700_000_000 + next as u32,
+                size,
+                id: next,
+                num_logs: n,
+                last_log_num: n,
+            }));
+            self.listing = if next >= last {
+                None
+            } else {
+                Some((next + 1, last))
+            };
         }
         if let Some((id, ofs, remaining)) = self.sending {
             let mut ofs = ofs;
@@ -270,7 +398,12 @@ impl MockFc {
                 let mut data = [0u8; 90];
                 data[..len as usize].copy_from_slice(&chunk);
                 if !drop {
-                    self.push(MavMessage::LOG_DATA(LOG_DATA_DATA { ofs, id, count: len as u8, data }));
+                    self.push(MavMessage::LOG_DATA(LOG_DATA_DATA {
+                        ofs,
+                        id,
+                        count: len as u8,
+                        data,
+                    }));
                 }
                 ofs += len;
                 remaining -= len;
@@ -329,7 +462,12 @@ mod tests {
     #[test]
     fn connect_reads_heartbeat_and_version() {
         let (c, _) = client(MockState::copter_4_5_5());
-        assert_eq!(c.firmware(), Firmware::ArduCopter { version: "4.5.5".into() });
+        assert_eq!(
+            c.firmware(),
+            Firmware::ArduCopter {
+                version: "4.5.5".into()
+            }
+        );
         assert!(!c.armed());
         assert_eq!(c.target(), (1, 1));
     }
@@ -344,18 +482,30 @@ mod tests {
         assert_eq!(store.params.len(), n);
         assert!(store.is_complete());
         assert_eq!(store.value("LOG_BITMASK"), Some(180222.0));
-        assert_eq!(store.get("LOG_BITMASK").unwrap().ptype, MavParamType::MAV_PARAM_TYPE_INT32);
+        assert_eq!(
+            store.get("LOG_BITMASK").unwrap().ptype,
+            MavParamType::MAV_PARAM_TYPE_INT32
+        );
     }
 
     #[test]
     fn set_param_sends_int_as_float_and_verifies_echo() {
         let (mut c, st) = client(MockState::copter_4_5_5());
         c.fetch_all_params(|_, _| {}).unwrap();
-        let o = c.set_param("LOG_BITMASK", 180222.0 + 1.0 + 4096.0 + 524288.0).unwrap();
+        let o = c
+            .set_param("LOG_BITMASK", 180222.0 + 1.0 + 4096.0 + 524288.0)
+            .unwrap();
         assert!(o.ok, "{o:?}");
         assert_eq!(o.read_back.as_deref(), Some("708607"));
         let sets = st.lock().unwrap().param_sets.clone();
-        assert_eq!(sets, vec![("LOG_BITMASK".to_string(), 708607.0, MavParamType::MAV_PARAM_TYPE_INT32)]);
+        assert_eq!(
+            sets,
+            vec![(
+                "LOG_BITMASK".to_string(),
+                708607.0,
+                MavParamType::MAV_PARAM_TYPE_INT32
+            )]
+        );
         // unchanged value: no echo from save_sync → read-back path still verifies
         let o = c.set_param("LOG_BITMASK", 708607.0).unwrap();
         assert!(o.ok);
@@ -375,8 +525,23 @@ mod tests {
     #[test]
     fn apply_gates_hntch_enable_behind_reboot_and_verifies_after() {
         let (mut c, st) = client(MockState::copter_4_5_5());
-        let rec = |n: &str, v: f32, reboot: bool| Recommendation { id: uuid::Uuid::nil(), param: ParamRef::Ap(n.into()), old: ParamValue::F32(0.0), new: ParamValue::F32(v), reason: String::new(), evidence: vec![], confidence: Confidence::High, requires_reboot: reboot, accepted: true };
-        let recs = vec![rec("INS_HNTCH_ENABLE", 1.0, true), rec("INS_HNTCH_FREQ", 120.0, false), rec("INS_HNTCH_REF", 0.35, false), rec("ATC_RAT_RLL_P", 0.15, false)];
+        let rec = |n: &str, v: f32, reboot: bool| Recommendation {
+            id: uuid::Uuid::nil(),
+            param: ParamRef::Ap(n.into()),
+            old: ParamValue::F32(0.0),
+            new: ParamValue::F32(v),
+            reason: String::new(),
+            evidence: vec![],
+            confidence: Confidence::High,
+            requires_reboot: reboot,
+            accepted: true,
+        };
+        let recs = vec![
+            rec("INS_HNTCH_ENABLE", 1.0, true),
+            rec("INS_HNTCH_FREQ", 120.0, false),
+            rec("INS_HNTCH_REF", 0.35, false),
+            rec("ATC_RAT_RLL_P", 0.15, false),
+        ];
         let r = c.apply(&recs).unwrap();
         assert!(r.rebooted);
         assert!(r.verified, "{:?}", r.outcomes);
@@ -387,7 +552,15 @@ mod tests {
         assert!((s.params["ATC_RAT_RLL_P"].value - 0.15).abs() < 1e-7);
         // order: ENABLE was set before FREQ existed
         let names: Vec<&str> = s.param_sets.iter().map(|x| x.0.as_str()).collect();
-        assert_eq!(names, vec!["INS_HNTCH_ENABLE", "INS_HNTCH_FREQ", "INS_HNTCH_REF", "ATC_RAT_RLL_P"]);
+        assert_eq!(
+            names,
+            vec![
+                "INS_HNTCH_ENABLE",
+                "INS_HNTCH_FREQ",
+                "INS_HNTCH_REF",
+                "ATC_RAT_RLL_P"
+            ]
+        );
     }
 
     #[test]
@@ -430,12 +603,19 @@ mod tests {
         s.drop_log_offsets = [90u32 * 3, 90 * 20, 90 * 36].into_iter().collect();
         let (mut c, _) = client(s);
         let list = c.list_logs().unwrap();
-        assert_eq!(list.iter().map(|e| (e.id, e.size)).collect::<Vec<_>>(), vec![(1, log1.len() as u64), (2, log2.len() as u64)]);
+        assert_eq!(
+            list.iter().map(|e| (e.id, e.size)).collect::<Vec<_>>(),
+            vec![(1, log1.len() as u64), (2, log2.len() as u64)]
+        );
         let mut last = (0, 0);
-        let got = c.download_log(Some(1), &mut |d, t| last = (d, t), &AtomicBool::new(false)).unwrap();
+        let got = c
+            .download_log(Some(1), &mut |d, t| last = (d, t), &AtomicBool::new(false))
+            .unwrap();
         assert_eq!(got, log1);
         assert_eq!(last, (log1.len() as u64, log1.len() as u64));
-        let got = c.download_log(None, &mut |_, _| {}, &AtomicBool::new(false)).unwrap();
+        let got = c
+            .download_log(None, &mut |_, _| {}, &AtomicBool::new(false))
+            .unwrap();
         assert_eq!(got, log2);
     }
 

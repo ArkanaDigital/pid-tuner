@@ -18,7 +18,13 @@ pub struct PeakOpts {
 
 impl Default for PeakOpts {
     fn default() -> Self {
-        Self { min_hz: 20.0, floor_window_hz: 60.0, min_prominence_db: 8.0, min_spacing_hz: 15.0, max_peaks: 8 }
+        Self {
+            min_hz: 20.0,
+            floor_window_hz: 60.0,
+            min_prominence_db: 8.0,
+            min_spacing_hz: 15.0,
+            max_peaks: 8,
+        }
     }
 }
 
@@ -74,7 +80,14 @@ pub fn find_peaks(s: &Spectrum, opts: &PeakOpts) -> Vec<NoisePeak> {
         if out.iter().any(|q| (q.f_hz - f).abs() < opts.min_spacing_hz) {
             continue;
         }
-        out.push(NoisePeak { axis: s.axis, kind: s.kind, f_hz: f, psd_db: s.psd_db[i], prominence_db: p, band: band_for(f) });
+        out.push(NoisePeak {
+            axis: s.axis,
+            kind: s.kind,
+            f_hz: f,
+            psd_db: s.psd_db[i],
+            prominence_db: p,
+            band: band_for(f),
+        });
     }
     out.sort_by(|a, b| a.f_hz.partial_cmp(&b.f_hz).unwrap());
     out
@@ -101,7 +114,14 @@ mod tests {
                 v
             })
             .collect();
-        let s = Spectrum { axis: Axis::Roll, kind: SpectrumKind::GyroRaw, f_hz, psd_db: psd, nfft: 2000, fs_hz: 2000.0 };
+        let s = Spectrum {
+            axis: Axis::Roll,
+            kind: SpectrumKind::GyroRaw,
+            f_hz,
+            psd_db: psd,
+            nfft: 2000,
+            fs_hz: 2000.0,
+        };
         let p = find_peaks(&s, &PeakOpts::default());
         assert_eq!(p.len(), 2, "{p:?}");
         assert_eq!(p[0].f_hz as i32, 200);

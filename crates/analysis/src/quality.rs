@@ -50,14 +50,28 @@ pub fn log_quality(log: &FlightLog) -> LogQuality {
     for t in thr_air {
         hist[((t * 50.0) as usize).min(49)] += 1;
     }
-    let modal = hist.iter().enumerate().skip(6).max_by_key(|(_, c)| **c).map(|(b, _)| (b as f64 + 0.5) / 50.0).unwrap_or(0.0);
-    let hover = thr_air.iter().filter(|t| (**t as f64 - modal).abs() <= 0.08).count() as f64 * dt;
+    let modal = hist
+        .iter()
+        .enumerate()
+        .skip(6)
+        .max_by_key(|(_, c)| **c)
+        .map(|(b, _)| (b as f64 + 0.5) / 50.0)
+        .unwrap_or(0.0);
+    let hover = thr_air
+        .iter()
+        .filter(|t| (**t as f64 - modal).abs() <= 0.08)
+        .count() as f64
+        * dt;
     let sat = if log.motors.is_empty() {
         0.0
     } else {
         let mut c = 0usize;
         for k in 0..log.motors[0].len() {
-            if log.motors.iter().any(|m| m.get(k).copied().unwrap_or(0.0) >= 0.98) {
+            if log
+                .motors
+                .iter()
+                .any(|m| m.get(k).copied().unwrap_or(0.0) >= 0.98)
+            {
                 c += 1;
             }
         }
@@ -81,7 +95,16 @@ pub fn log_quality(log: &FlightLog) -> LogQuality {
         gap_seconds: log.gaps.iter().map(|(a, b)| (b - a) as f64).sum(),
         pid_rate_hz: log.meta.msg_rates_hz.get("PIDR").copied(),
         max_pid_out: {
-            let m: Vec<f32> = log.axes.iter().map(|a| a.pid_sum.as_ref().map(|s| s.iter().fold(0f32, |x, v| x.max(v.abs()))).unwrap_or(0.0)).collect();
+            let m: Vec<f32> = log
+                .axes
+                .iter()
+                .map(|a| {
+                    a.pid_sum
+                        .as_ref()
+                        .map(|s| s.iter().fold(0f32, |x, v| x.max(v.abs())))
+                        .unwrap_or(0.0)
+                })
+                .collect();
             matches!(log.firmware, Firmware::ArduCopter { .. }).then(|| [m[0], m[1], m[2]])
         },
         gyro_hr_batches: log.gyro_hr.iter().map(|t| t.batches.len()).sum(),

@@ -10,13 +10,23 @@ use uuid::Uuid;
 type R<T> = std::result::Result<T, String>;
 
 fn store(state: &State<'_, AppState>) -> R<SessionStore> {
-    state.store.lock().unwrap().clone().ok_or_else(|| "session store not ready".to_string())
+    state
+        .store
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| "session store not ready".to_string())
 }
 
-fn with_engine<T>(state: &State<'_, AppState>, f: impl FnOnce(&mut SessionEngine, &FcStatus) -> R<T>) -> R<T> {
+fn with_engine<T>(
+    state: &State<'_, AppState>,
+    f: impl FnOnce(&mut SessionEngine, &FcStatus) -> R<T>,
+) -> R<T> {
     let fc = state.fc.lock().unwrap().clone();
     let mut guard = state.engine.lock().unwrap();
-    let e = guard.as_mut().ok_or_else(|| "no session open".to_string())?;
+    let e = guard
+        .as_mut()
+        .ok_or_else(|| "no session open".to_string())?;
     f(e, &fc)
 }
 
@@ -87,7 +97,8 @@ pub fn session_snapshot(state: State<'_, AppState>) -> R<SessionSnapshot> {
 #[tauri::command]
 pub fn wizard_next(state: State<'_, AppState>) -> R<SessionSnapshot> {
     with_engine(&state, |e, fc| {
-        e.next(if fc.connected { Some(fc) } else { None }).map_err(|e| e.to_string())?;
+        e.next(if fc.connected { Some(fc) } else { None })
+            .map_err(|e| e.to_string())?;
         Ok(snap(e, fc))
     })
 }
@@ -109,9 +120,14 @@ pub fn wizard_goto(state: State<'_, AppState>, step: Step) -> R<SessionSnapshot>
 }
 
 #[tauri::command]
-pub fn wizard_override(state: State<'_, AppState>, guard_id: String, reason: String) -> R<SessionSnapshot> {
+pub fn wizard_override(
+    state: State<'_, AppState>,
+    guard_id: String,
+    reason: String,
+) -> R<SessionSnapshot> {
     with_engine(&state, |e, fc| {
-        e.override_guard(&guard_id, &reason).map_err(|e| e.to_string())?;
+        e.override_guard(&guard_id, &reason)
+            .map_err(|e| e.to_string())?;
         Ok(snap(e, fc))
     })
 }
@@ -134,20 +150,27 @@ pub struct ImportResult {
 /// Ingest + analyse + attach a log to a flight, and (re)compute the
 /// recommendations that belong to that flight.
 #[tauri::command]
-pub async fn flight_import(state: State<'_, AppState>, which: Flight, path: String, session_index: usize) -> R<ImportResult> {
+pub async fn flight_import(
+    state: State<'_, AppState>,
+    which: Flight,
+    path: String,
+    session_index: usize,
+) -> R<ImportResult> {
     let p = path.clone();
-    let (log, bundle) = tauri::async_runtime::spawn_blocking(move || -> R<(FlightLog, AnalysisBundle)> {
-        let bytes = std::fs::read(&p).map_err(|e| format!("read {p}: {e}"))?;
-        let log = log_ingest::ingest(&bytes, session_index).map_err(|e| e.to_string())?;
-        let bundle = analysis::analyze(&log, &analysis::AnalysisOpts::default(), |_| {});
-        Ok((log, bundle))
-    })
-    .await
-    .map_err(|e| e.to_string())??;
+    let (log, bundle) =
+        tauri::async_runtime::spawn_blocking(move || -> R<(FlightLog, AnalysisBundle)> {
+            let bytes = std::fs::read(&p).map_err(|e| format!("read {p}: {e}"))?;
+            let log = log_ingest::ingest(&bytes, session_index).map_err(|e| e.to_string())?;
+            let bundle = analysis::analyze(&log, &analysis::AnalysisOpts::default(), |_| {});
+            Ok((log, bundle))
+        })
+        .await
+        .map_err(|e| e.to_string())??;
 
     let log_id = log.id.0.clone();
     let snapshot = with_engine(&state, |e, fc| {
-        e.attach_log(which, Path::new(&path), session_index, &log, &bundle).map_err(|e| e.to_string())?;
+        e.attach_log(which, Path::new(&path), session_index, &log, &bundle)
+            .map_err(|e| e.to_string())?;
         let phase = match which {
             Flight::A => Some(recommend::Phase::Filters),
             Flight::B => Some(recommend::Phase::Pids),
@@ -155,13 +178,25 @@ pub async fn flight_import(state: State<'_, AppState>, which: Flight, path: Stri
         };
         if let Some(ph) = phase {
             let recs = recommend::recommend_for_log(&log, &bundle, ph);
-            let ap = if ph == recommend::Phase::Filters { ApplyPhase::Filters } else { ApplyPhase::Pids };
+            let ap = if ph == recommend::Phase::Filters {
+                ApplyPhase::Filters
+            } else {
+                ApplyPhase::Pids
+            };
             e.set_recs(ap, recs).map_err(|e| e.to_string())?;
         }
         Ok(snap(e, fc))
     })?;
-    state.logs.lock().unwrap().insert(log_id.clone(), Arc::new(log));
-    Ok(ImportResult { snapshot, bundle, log_id })
+    state
+        .logs
+        .lock()
+        .unwrap()
+        .insert(log_id.clone(), Arc::new(log));
+    Ok(ImportResult {
+        snapshot,
+        bundle,
+        log_id,
+    })
 }
 
 #[tauri::command]
@@ -180,7 +215,8 @@ pub struct RecUpdate {
 #[tauri::command]
 pub fn recs_set(state: State<'_, AppState>, update: RecUpdate) -> R<SessionSnapshot> {
     with_engine(&state, |e, fc| {
-        e.set_rec(update.phase, update.id, update.accepted, update.new_value).map_err(|e| e.to_string())?;
+        e.set_rec(update.phase, update.id, update.accepted, update.new_value)
+            .map_err(|e| e.to_string())?;
         Ok(snap(e, fc))
     })
 }
@@ -188,9 +224,15 @@ pub fn recs_set(state: State<'_, AppState>, update: RecUpdate) -> R<SessionSnaps
 /// Offline mode: the tuner confirms the CLI/param text was applied by hand.
 /// Online mode uses the `fc` layer, which records its own verified apply.
 #[tauri::command]
-pub fn apply_confirm(state: State<'_, AppState>, phase: ApplyPhase, method: String, notes: Option<String>) -> R<SessionSnapshot> {
+pub fn apply_confirm(
+    state: State<'_, AppState>,
+    phase: ApplyPhase,
+    method: String,
+    notes: Option<String>,
+) -> R<SessionSnapshot> {
     with_engine(&state, |e, fc| {
-        e.record_apply(phase, true, &method, notes).map_err(|e| e.to_string())?;
+        e.record_apply(phase, true, &method, notes)
+            .map_err(|e| e.to_string())?;
         Ok(snap(e, fc))
     })
 }
@@ -202,16 +244,24 @@ pub fn fc_status(state: State<'_, AppState>) -> R<FcStatus> {
 
 /// Flight protocol text for the session's firmware (falls back to Betaflight).
 #[tauri::command]
-pub fn flight_protocol(state: State<'_, AppState>, which: Flight) -> R<session::protocol::Protocol> {
+pub fn flight_protocol(
+    state: State<'_, AppState>,
+    which: Flight,
+) -> R<session::protocol::Protocol> {
     let fw = {
         let g = state.engine.lock().unwrap();
-        g.as_ref().and_then(|e| e.session.firmware.clone()).or_else(|| state.fc.lock().unwrap().firmware.clone())
+        g.as_ref()
+            .and_then(|e| e.session.firmware.clone())
+            .or_else(|| state.fc.lock().unwrap().firmware.clone())
     };
     Ok(session::protocol::text(fw.as_ref(), which))
 }
 
 #[tauri::command]
-pub fn wizard_pid_strategy(state: State<'_, AppState>, strategy: PidStrategy) -> R<SessionSnapshot> {
+pub fn wizard_pid_strategy(
+    state: State<'_, AppState>,
+    strategy: PidStrategy,
+) -> R<SessionSnapshot> {
     with_engine(&state, |e, fc| {
         e.set_pid_strategy(strategy).map_err(|e| e.to_string())?;
         Ok(snap(e, fc))
@@ -248,7 +298,9 @@ pub fn report_export(state: State<'_, AppState>, images: Vec<ReportImage>) -> R<
             .collect::<Vec<_>>();
         let html = crate::report::render(&e.session, &bundles, &images);
         let rel = "report/report.html".to_string();
-        e.store.write_rel(e.session.id, &rel, html.as_bytes()).map_err(|e| e.to_string())?;
+        e.store
+            .write_rel(e.session.id, &rel, html.as_bytes())
+            .map_err(|e| e.to_string())?;
         e.set_report(rel.clone()).map_err(|e| e.to_string())?;
         Ok(e.store.abs(e.session.id, &rel).display().to_string())
     })

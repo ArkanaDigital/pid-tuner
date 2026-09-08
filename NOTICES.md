@@ -46,3 +46,10 @@ reference implementations were ported from:
   (values verified against `src/main/build/debug.h` at tags 2025.12.2 and 2026.6.1).
 - **pichim/bf_controller_tuning** — Peter Michael (GPL-3.0): example chirp log
   `logs/example_logs/Gyro_Angle.TXT` used as a test fixture (see `fixtures/SOURCES.md`).
+- **Provider APIs** — request/response shapes for the AI helper follow the public
+  documentation of the Anthropic Messages API, OpenAI Responses API, Google Gemini
+  `generateContent` and DeepSeek chat completions (verified 2026-09-08); no vendor
+  SDK code is included. → `crates/llm/src/providers`.
+- Rust crates for the AI helper and settings: `reqwest`, `tokio`, `async-trait`,
+  `wiremock` (tests) — MIT OR Apache-2.0; `chacha20poly1305`, `blake3`, `machine-uid`
+  — MIT OR Apache-2.0 (blake3 also CC0). → `crates/appconfig`, `crates/llm`.

@@ -76,7 +76,8 @@ pub fn parse_fc_version(p: &[u8]) -> Result<String, MspError> {
 
 pub fn parse_board_info(p: &[u8]) -> Result<(String, String, String), MspError> {
     let mut r = Reader::new(p);
-    let id = String::from_utf8_lossy(r.bytes(4).ok_or_else(|| short("MSP_BOARD_INFO", p.len()))?).into_owned();
+    let id = String::from_utf8_lossy(r.bytes(4).ok_or_else(|| short("MSP_BOARD_INFO", p.len()))?)
+        .into_owned();
     let _board_version = rd!(r, "MSP_BOARD_INFO", u16);
     let _board_type = rd!(r, "MSP_BOARD_INFO", u8);
     let _caps = rd!(r, "MSP_BOARD_INFO", u8);
@@ -119,7 +120,8 @@ impl StatusEx {
             ..Default::default()
         };
         let extra = rd!(r, "MSP_STATUS_EX", u8) as usize; // extra flight-mode flag bytes
-        r.bytes(extra).ok_or_else(|| short("MSP_STATUS_EX", p.len()))?;
+        r.bytes(extra)
+            .ok_or_else(|| short("MSP_STATUS_EX", p.len()))?;
         s.arming_disable_count = rd!(r, "MSP_STATUS_EX", u8);
         s.arming_disable_flags = rd!(r, "MSP_STATUS_EX", u32);
         s.config_state = r.u8().unwrap_or(0);
@@ -142,7 +144,9 @@ impl Pids {
         if p.len() < 9 {
             return Err(short("MSP_PID", p.len()));
         }
-        Ok(Self { rows: p.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect() })
+        Ok(Self {
+            rows: p.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect(),
+        })
     }
     pub fn encode(&self) -> Vec<u8> {
         self.rows.iter().flatten().copied().collect()
@@ -301,7 +305,11 @@ impl PidAdvanced {
             .u8(self.smart_feedforward)
             .u8(self.iterm_relax)
             .u8(self.iterm_relax_type)
-            .u8(if api.at_least(1, 48) { 0 } else { self.absolute_control_gain })
+            .u8(if api.at_least(1, 48) {
+                0
+            } else {
+                self.absolute_control_gain
+            })
             .u8(self.throttle_boost)
             .u8(self.acro_trainer_angle_limit)
             .u16(self.feedforward_roll)
@@ -319,7 +327,9 @@ impl PidAdvanced {
             w.u8(self.iterm_relax_cutoff);
         }
         if api.at_least(1, 43) {
-            w.u8(self.motor_output_limit).i8(self.auto_profile_cell_count).u8(self.idle_min_rpm);
+            w.u8(self.motor_output_limit)
+                .i8(self.auto_profile_cell_count)
+                .u8(self.idle_min_rpm);
         }
         if api.at_least(1, 44) {
             w.u8(self.feedforward_averaging)
@@ -331,7 +341,9 @@ impl PidAdvanced {
                 .u8(self.thrust_linearization);
         }
         if api.at_least(1, 45) {
-            w.u8(self.tpa_mode).u8(self.tpa_rate).u16(self.tpa_breakpoint);
+            w.u8(self.tpa_mode)
+                .u8(self.tpa_rate)
+                .u16(self.tpa_breakpoint);
         }
         w.0.extend_from_slice(&self.tail);
         w.0
@@ -477,7 +489,8 @@ impl FilterConfig {
             w.u8(self.dyn_lpf_curve_expo).u8(self.dyn_notch_count);
         }
         if api.at_least(1, 48) && self.has_rpm_ext {
-            w.u16(self.gyro_rpm_notch_fade_range_hz).u16(self.gyro_rpm_notch_q);
+            w.u16(self.gyro_rpm_notch_fade_range_hz)
+                .u16(self.gyro_rpm_notch_q);
             for k in 0..3 {
                 w.u8(self.gyro_rpm_notch_weights[k]);
             }
@@ -623,7 +636,10 @@ impl BlackboxConfig {
     }
     pub fn encode(&self, api: ApiVersion) -> Vec<u8> {
         let mut w = Writer::new();
-        w.u8(self.device).u8(self.rate_num).u8(self.rate_denom).u16(self.p_denom);
+        w.u8(self.device)
+            .u8(self.rate_num)
+            .u8(self.rate_denom)
+            .u16(self.p_denom);
         if api.at_least(1, 44) {
             w.u8(self.sample_rate);
         }
@@ -654,7 +670,13 @@ impl DataflashSummary {
         }
         let mut r = Reader::new(p);
         let flags = r.u8().unwrap();
-        Ok(Self { ready: flags & 1 != 0, supported: flags & 2 != 0, sectors: r.u32().unwrap(), total_size: r.u32().unwrap(), used_size: r.u32().unwrap() })
+        Ok(Self {
+            ready: flags & 1 != 0,
+            supported: flags & 2 != 0,
+            sectors: r.u32().unwrap(),
+            total_size: r.u32().unwrap(),
+            used_size: r.u32().unwrap(),
+        })
     }
 }
 
@@ -671,7 +693,13 @@ impl SdcardSummary {
     pub fn parse(p: &[u8]) -> Result<Self, MspError> {
         let w = "MSP_SDCARD_SUMMARY";
         let mut r = Reader::new(p);
-        Ok(Self { supported: rd!(r, w, u8) & 1 != 0, state: rd!(r, w, u8), last_error: rd!(r, w, u8), free_kb: rd!(r, w, u32), total_kb: rd!(r, w, u32) })
+        Ok(Self {
+            supported: rd!(r, w, u8) & 1 != 0,
+            state: rd!(r, w, u8),
+            last_error: rd!(r, w, u8),
+            free_kb: rd!(r, w, u32),
+            total_kb: rd!(r, w, u32),
+        })
     }
 }
 
@@ -693,9 +721,14 @@ pub fn parse_dataflash_read(p: &[u8]) -> Result<DataflashChunk, MspError> {
     let len = rd!(r, "MSP_DATAFLASH_READ", u16) as usize;
     let compression = rd!(r, "MSP_DATAFLASH_READ", u8);
     if compression != 0 {
-        return Err(MspError::Protocol(format!("unexpected dataflash compression {compression}")));
+        return Err(MspError::Protocol(format!(
+            "unexpected dataflash compression {compression}"
+        )));
     }
-    let data = r.bytes(len).ok_or_else(|| short("MSP_DATAFLASH_READ", p.len()))?.to_vec();
+    let data = r
+        .bytes(len)
+        .ok_or_else(|| short("MSP_DATAFLASH_READ", p.len()))?
+        .to_vec();
     Ok(DataflashChunk { address, data })
 }
 
@@ -818,7 +851,9 @@ mod tests {
 
     #[test]
     fn fc_version_calendar() {
-        let payload = [10u8, 0, 0, 9, b'2', b'0', b'2', b'5', b'.', b'1', b'2', b'.', b'1'];
+        let payload = [
+            10u8, 0, 0, 9, b'2', b'0', b'2', b'5', b'.', b'1', b'2', b'.', b'1',
+        ];
         assert_eq!(parse_fc_version(&payload).unwrap(), "2025.12.1");
         assert_eq!(parse_fc_version(&[4, 5, 1]).unwrap(), "4.5.1");
     }

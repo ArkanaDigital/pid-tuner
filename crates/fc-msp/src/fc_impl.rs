@@ -41,15 +41,25 @@ impl MspClient {
         let st = self.status()?;
         let api = self.api();
         let log_rate = self.blackbox_rate_hz()?;
-        let debug_mode = tune.get_raw("debug_mode").and_then(|v| v.parse::<u8>().ok());
-        let disabled = self.read_blackbox()?.and_then(|b| b.disabled_mask).unwrap_or(0);
+        let debug_mode = tune
+            .get_raw("debug_mode")
+            .and_then(|v| v.parse::<u8>().ok());
+        let disabled = self
+            .read_blackbox()?
+            .and_then(|b| b.disabled_mask)
+            .unwrap_or(0);
         // gyroUnfilt is logged natively from BF 4.4 (API 1.45); older builds need debug_mode 6 = GYRO_SCALED.
-        let raw_ok = (api.at_least(1, 45) && disabled & field_select::GYROUNFILT == 0) || debug_mode == Some(6);
+        let raw_ok = (api.at_least(1, 45) && disabled & field_select::GYROUNFILT == 0)
+            || debug_mode == Some(6);
         // PID, setpoint and gyro fields must not be switched off in the blackbox field mask.
-        let fields_ok = disabled & (field_select::PID | field_select::SETPOINT | field_select::GYRO) == 0;
+        let fields_ok =
+            disabled & (field_select::PID | field_select::SETPOINT | field_select::GYRO) == 0;
         let storage = match self.dataflash_summary() {
             Ok(d) if d.supported => Some(d.total_size.saturating_sub(d.used_size) as u64),
-            _ => self.sdcard_summary()?.filter(|s| s.supported).map(|s| s.free_kb as u64 * 1024),
+            _ => self
+                .sdcard_summary()?
+                .filter(|s| s.supported)
+                .map(|s| s.free_kb as u64 * 1024),
         };
         Ok((
             FcStatus {
@@ -61,7 +71,13 @@ impl MspClient {
                 heartbeat_age_s: 0.0,
                 tune: Some(Tune::Bf(tune.clone())),
                 log_rate_hz: log_rate,
-                debug_mode: debug_mode.map(|d| if d == 6 { "GYRO_SCALED".to_string() } else { d.to_string() }),
+                debug_mode: debug_mode.map(|d| {
+                    if d == 6 {
+                        "GYRO_SCALED".to_string()
+                    } else {
+                        d.to_string()
+                    }
+                }),
                 storage_free_bytes: storage,
                 pid_logging_enabled: Some(fields_ok),
                 raw_gyro_logging_enabled: Some(raw_ok),
@@ -80,7 +96,11 @@ impl MspClient {
         if st.armed() {
             return Err(MspError::Refused("armed".into()));
         }
-        let loop_hz = if st.cycle_time_us > 0 { 1e6 / st.cycle_time_us as f64 } else { 8000.0 };
+        let loop_hz = if st.cycle_time_us > 0 {
+            1e6 / st.cycle_time_us as f64
+        } else {
+            8000.0
+        };
         let mut outcomes = Vec::new();
         if let Some(mut bb) = self.read_blackbox()? {
             let before = bb.clone();
@@ -102,12 +122,24 @@ impl MspClient {
             if let Some(m) = bb.disabled_mask {
                 if m & field_select::REQUIRED != 0 {
                     bb.disabled_mask = Some(m & !field_select::REQUIRED);
-                    outcomes.push(ApplyOutcome { param: "blackbox_disable_setpoint/pids/gyro/…".into(), wanted: format!("mask {}", m & !field_select::REQUIRED), read_back: None, ok: true, via: "msp".into() });
+                    outcomes.push(ApplyOutcome {
+                        param: "blackbox_disable_setpoint/pids/gyro/…".into(),
+                        wanted: format!("mask {}", m & !field_select::REQUIRED),
+                        read_back: None,
+                        ok: true,
+                        via: "msp".into(),
+                    });
                 }
             }
             if bb != before {
                 self.write_blackbox(&bb)?;
-                outcomes.push(ApplyOutcome { param: "blackbox_sample_rate".into(), wanted: format!("{}", bb.sample_rate), read_back: None, ok: true, via: "msp".into() });
+                outcomes.push(ApplyOutcome {
+                    param: "blackbox_sample_rate".into(),
+                    wanted: format!("{}", bb.sample_rate),
+                    read_back: None,
+                    ok: true,
+                    via: "msp".into(),
+                });
             }
         }
         if !api.at_least(1, 45) {
@@ -115,7 +147,13 @@ impl MspClient {
                 if ac.debug_mode != 6 {
                     ac.debug_mode = 6; // GYRO_SCALED
                     self.write_advanced_config(&ac)?;
-                    outcomes.push(ApplyOutcome { param: "debug_mode".into(), wanted: "GYRO_SCALED".into(), read_back: None, ok: true, via: "msp".into() });
+                    outcomes.push(ApplyOutcome {
+                        param: "debug_mode".into(),
+                        wanted: "GYRO_SCALED".into(),
+                        read_back: None,
+                        ok: true,
+                        via: "msp".into(),
+                    });
                 }
             }
         }
@@ -124,7 +162,10 @@ impl MspClient {
             // read back
             let rate = self.blackbox_rate_hz()?.unwrap_or(0.0);
             let dbg = self.read_advanced_config()?.map(|a| a.debug_mode);
-            let mask = self.read_blackbox()?.and_then(|b| b.disabled_mask).unwrap_or(0);
+            let mask = self
+                .read_blackbox()?
+                .and_then(|b| b.disabled_mask)
+                .unwrap_or(0);
             for o in outcomes.iter_mut() {
                 match o.param.as_str() {
                     p if p.starts_with("blackbox_disable_") => {
@@ -144,7 +185,11 @@ impl MspClient {
             }
         }
         let verified = outcomes.iter().all(|o| o.ok);
-        Ok(ApplyResult { outcomes, verified, rebooted: false })
+        Ok(ApplyResult {
+            outcomes,
+            verified,
+            rebooted: false,
+        })
     }
 }
 
@@ -155,7 +200,15 @@ impl FlightController for MspClient {
 
     fn poll(&mut self) -> Result<FcStatus, FcError> {
         let st = self.status()?;
-        Ok(FcStatus { connected: true, port: Some(self.port.clone()), kind: Some(FcKind::Msp), firmware: Some(self.firmware()), armed: st.armed(), heartbeat_age_s: 0.0, ..Default::default() })
+        Ok(FcStatus {
+            connected: true,
+            port: Some(self.port.clone()),
+            kind: Some(FcKind::Msp),
+            firmware: Some(self.firmware()),
+            armed: st.armed(),
+            heartbeat_age_s: 0.0,
+            ..Default::default()
+        })
     }
 
     fn full_status(&mut self) -> Result<FcStatus, FcError> {
@@ -170,7 +223,11 @@ impl FlightController for MspClient {
     fn backup(&mut self) -> Result<Backup, FcError> {
         let diff = self.cli_diff_all()?;
         self.reboot_and_reconnect_after_cli()?;
-        Ok(Backup { label: "diff-all".into(), ext: "txt".into(), bytes: diff.into_bytes() })
+        Ok(Backup {
+            label: "diff-all".into(),
+            ext: "txt".into(),
+            bytes: diff.into_bytes(),
+        })
     }
 
     fn preflight_fix(&mut self, fix: PreflightFix) -> Result<ApplyResult, FcError> {
@@ -187,7 +244,12 @@ impl FlightController for MspClient {
     }
 
     fn reboot_and_reconnect(&mut self) -> Result<(), FcError> {
-        self.link.request(crate::codes::MSP_SET_REBOOT, &[crate::codes::REBOOT_FIRMWARE]).ok();
+        self.link
+            .request(
+                crate::codes::MSP_SET_REBOOT,
+                &[crate::codes::REBOOT_FIRMWARE],
+            )
+            .ok();
         self.reboot_and_reconnect_after_cli()
     }
 
@@ -196,10 +258,19 @@ impl FlightController for MspClient {
         if !s.supported || s.used_size == 0 {
             return Ok(Vec::new());
         }
-        Ok(vec![LogEntry { id: 1, size: s.used_size as u64, time_utc: None }])
+        Ok(vec![LogEntry {
+            id: 1,
+            size: s.used_size as u64,
+            time_utc: None,
+        }])
     }
 
-    fn download_log(&mut self, _id: Option<u32>, progress: ProgressFn<'_>, cancel: &AtomicBool) -> Result<Vec<u8>, FcError> {
+    fn download_log(
+        &mut self,
+        _id: Option<u32>,
+        progress: ProgressFn<'_>,
+        cancel: &AtomicBool,
+    ) -> Result<Vec<u8>, FcError> {
         let bytes = self.dataflash_download(|d, t| {
             progress(d as u64, t as u64);
         })?;

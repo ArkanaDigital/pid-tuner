@@ -9,6 +9,7 @@ import SpectrogramCanvas from "./charts/SpectrogramCanvas";
 import AnomalyList, { anomalySummary } from "./wizard/AnomalyList";
 import BodeChart from "./charts/BodeChart";
 import FrMetricsTable from "./charts/FrMetricsTable";
+import AiPanel from "./ai/AiPanel";
 
 type Tab = "step" | "freq" | "spectrum" | "spectrogram" | "recs" | "anomalies";
 
@@ -89,6 +90,8 @@ export default function QuickLook() {
         <span className="spacer" />
         {s.busy && <span className="busy">{s.busy}</span>}
         {s.error && <span className="error">{s.error}</span>}
+        <button className="small" onClick={() => s.setAi({ open: !s.ai.open })}>{s.ai.open ? "Sembunyikan AI" : "AI helper"}</button>
+        <button className="small" onClick={() => s.set({ prevView: "quick", view: "settings" })}>⚙</button>
       </header>
 
       <nav className="tabs">
@@ -99,6 +102,7 @@ export default function QuickLook() {
         ))}
       </nav>
 
+      <div className={`quick-body ${s.ai.open ? "with-ai" : ""}`}>
       <main className="content">
         {!b && !s.busy && <div className="empty">Open a Betaflight blackbox (.BBL / .BFL) or ArduPilot DataFlash (.BIN) log to analyze it.</div>}
         {b && b.anomalies.some((a) => a.severity === "critical") && tab !== "anomalies" && (
@@ -184,6 +188,8 @@ export default function QuickLook() {
           </section>
         )}
       </main>
+      {s.ai.open && b && <aside className="ai-drawer"><AiPanel scope="quick" /></aside>}
+      </div>
     </div>
   );
 }

@@ -50,7 +50,11 @@ pub async fn log_sessions(path: String) -> Result<Vec<log_ingest::SessionInfo>, 
 }
 
 #[tauri::command]
-pub async fn log_open(state: State<'_, AppState>, path: String, session: usize) -> Result<LogSummary, String> {
+pub async fn log_open(
+    state: State<'_, AppState>,
+    path: String,
+    session: usize,
+) -> Result<LogSummary, String> {
     let p = path.clone();
     let log = tauri::async_runtime::spawn_blocking(move || {
         let bytes = std::fs::read(&p).map_err(|e| format!("read {p}: {e}"))?;
@@ -59,16 +63,30 @@ pub async fn log_open(state: State<'_, AppState>, path: String, session: usize) 
     .await
     .map_err(|e| e.to_string())??;
     let summary = summarize(&path, &log);
-    state.logs.lock().unwrap().insert(log.id.0.clone(), Arc::new(log));
+    state
+        .logs
+        .lock()
+        .unwrap()
+        .insert(log.id.0.clone(), Arc::new(log));
     Ok(summary)
 }
 
 fn get_log(state: &State<'_, AppState>, id: &str) -> Result<Arc<FlightLog>, String> {
-    state.logs.lock().unwrap().get(id).cloned().ok_or_else(|| format!("log {id} not loaded"))
+    state
+        .logs
+        .lock()
+        .unwrap()
+        .get(id)
+        .cloned()
+        .ok_or_else(|| format!("log {id} not loaded"))
 }
 
 #[tauri::command]
-pub async fn log_analyze(state: State<'_, AppState>, id: String, pid_analyzer: bool) -> Result<AnalysisBundle, String> {
+pub async fn log_analyze(
+    state: State<'_, AppState>,
+    id: String,
+    pid_analyzer: bool,
+) -> Result<AnalysisBundle, String> {
     let log = get_log(&state, &id)?;
     let bundle = tauri::async_runtime::spawn_blocking(move || {
         let mut opts = analysis::AnalysisOpts::default();
@@ -81,7 +99,11 @@ pub async fn log_analyze(state: State<'_, AppState>, id: String, pid_analyzer: b
     .map_err(|e| e.to_string())?;
     // Keep the bundle server-side: NaN/inf (e.g. latency with zero step segments)
     // become `null` in JSON and cannot round-trip through the UI.
-    state.bundles.lock().unwrap().insert(id, Arc::new(bundle.clone()));
+    state
+        .bundles
+        .lock()
+        .unwrap()
+        .insert(id, Arc::new(bundle.clone()));
     Ok(bundle)
 }
 
@@ -92,11 +114,45 @@ pub struct RecommendArgs {
 }
 
 #[tauri::command]
-pub async fn log_recommend(state: State<'_, AppState>, args: RecommendArgs) -> Result<Vec<Recommendation>, String> {
+pub async fn log_recommend(
+    state: State<'_, AppState>,
+    args: RecommendArgs,
+) -> Result<Vec<Recommendation>, String> {
     let log = get_log(&state, &args.id)?;
-    let bundle = state.bundles.lock().unwrap().get(&args.id).cloned().ok_or_else(|| format!("analysis for {} not cached — run log_analyze first", args.id))?;
-    let phase = if args.phase == "pids" { recommend::Phase::Pids } else { recommend::Phase::Filters };
-    Ok(recommend::recommend_for_log(&log, &bundle, phase))
+    let bundle = state
+        .bundles
+        .lock()
+        .unwrap()
+        .get(&args.id)
+        .cloned()
+        .ok_or_else(|| {
+            format!(
+                "analysis for {} not cached — run log_analyze first",
+                args.id
+            )
+        })?;
+    let phase = if args.phase == "pids" {
+        recommend::Phase::Pids
+    } else {
+        recommend::Phase::Filters
+    };
+    let recs = recommend::recommend_for_log(&log, &bundle, phase);
+    // keep them for the AI helper (quick scope)
+    {
+        let mut q = state.quick.lock().unwrap();
+        let ctx = q.get_or_insert_with(Default::default);
+        if ctx.log_id.as_deref() != Some(args.id.as_str()) {
+            *ctx = crate::ai::host::QuickCtx {
+                log_id: Some(args.id.clone()),
+                ..Default::default()
+            };
+        }
+        match phase {
+            recommend::Phase::Filters => ctx.recs_filters = recs.clone(),
+            recommend::Phase::Pids => ctx.recs_pids = recs.clone(),
+        }
+    }
+    Ok(recs)
 }
 
 #[derive(Serialize)]
@@ -142,5 +198,7 @@ pub fn series_window(
 /// Dev helper: `PIDTUNER_OPEN=/path/to/log.bbl pnpm tauri dev` auto-loads a file.
 #[tauri::command]
 pub fn dev_autoload_path() -> Option<String> {
-    std::env::var("PIDTUNER_OPEN").ok().filter(|s| !s.is_empty())
+    std::env::var("PIDTUNER_OPEN")
+        .ok()
+        .filter(|s| !s.is_empty())
 }

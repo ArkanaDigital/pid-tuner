@@ -53,7 +53,11 @@ impl Default for ChirpOpts {
 }
 
 fn db20(x: f32) -> f32 {
-    if x.is_finite() && x > 0.0 { 20.0 * x.log10() } else { f32::NAN }
+    if x.is_finite() && x > 0.0 {
+        20.0 * x.log10()
+    } else {
+        f32::NAN
+    }
 }
 
 /// Linear interpolation of `y` at `x` on the ascending grid `f` (NaN outside / invalid).
@@ -85,7 +89,11 @@ fn lsq_slope(x: &[f32], y: &[f32]) -> f32 {
         sxy += (a - mx) * (b - my);
         sxx += (a - mx) * (a - mx);
     }
-    if sxx > 0.0 { sxy / sxx } else { f32::NAN }
+    if sxx > 0.0 {
+        sxy / sxx
+    } else {
+        f32::NAN
+    }
 }
 
 /// Number of sweeps inside `debug2[i0..i1]` (frequency restarts + 1).
@@ -100,7 +108,11 @@ fn count_sweeps(debug2: Option<&[f32]>, i0: usize, i1: usize) -> usize {
     restarts + 1
 }
 
-pub fn frequency_response(log: &FlightLog, axis: Axis, opts: &ChirpOpts) -> Option<FrequencyResponse> {
+pub fn frequency_response(
+    log: &FlightLog,
+    axis: Axis,
+    opts: &ChirpOpts,
+) -> Option<FrequencyResponse> {
     let info = log.chirp.as_ref()?;
     let fs = log.fs_hz;
     let nfft = cross::segment_size_for(fs);
@@ -111,13 +123,25 @@ pub fn frequency_response(log: &FlightLog, axis: Axis, opts: &ChirpOpts) -> Opti
     // Rate-loop (ACRO) sweeps first; fall back to ANGLE-mode sweeps, flagged.
     let has_acro = info.segments_for(axis).any(|s| !s.angle_mode);
     let angle_mode = !has_acro;
-    for seg in info.segments_for(axis).filter(|s| s.angle_mode == angle_mode) {
+    for seg in info
+        .segments_for(axis)
+        .filter(|s| s.angle_mode == angle_mode)
+    {
         if seg.i1 <= seg.i0 || seg.i1 - seg.i0 < nfft || seg.i1 > ax.setpoint.len() {
             continue;
         }
         let u = &ax.setpoint[seg.i0..seg.i1];
         let y = &ax.gyro_filt[seg.i0..seg.i1];
-        let cs = cross::cross_welch(u, y, fs, CsdOpts { nfft, overlap: opts.overlap, detrend: opts.detrend });
+        let cs = cross::cross_welch(
+            u,
+            y,
+            fs,
+            CsdOpts {
+                nfft,
+                overlap: opts.overlap,
+                detrend: opts.detrend,
+            },
+        );
         acc.accumulate(&cs);
         n_sweeps += count_sweeps(log.debug.get(2).map(|v| v.as_slice()), seg.i0, seg.i1);
         sweep_s += seg.t1_s - seg.t0_s;
@@ -130,46 +154,113 @@ pub fn frequency_response(log: &FlightLog, axis: Axis, opts: &ChirpOpts) -> Opti
     let h = acc.transfer();
     let coh = acc.coherence();
     let h_mag_db: Vec<f32> = h.iter().map(|c| db20(c.norm())).collect();
-    let h_phase_deg: Vec<f32> = h.iter().map(|c| if c.re.is_finite() { c.arg().to_degrees() } else { f32::NAN }).collect();
+    let h_phase_deg: Vec<f32> = h
+        .iter()
+        .map(|c| {
+            if c.re.is_finite() {
+                c.arg().to_degrees()
+            } else {
+                f32::NAN
+            }
+        })
+        .collect();
 
     // open loop where coherent and above ol_min_hz
-    let l_valid: Vec<bool> = (0..nb).map(|k| f[k] >= opts.ol_min_hz && coh[k] >= opts.ol_min_coh && h[k].re.is_finite()).collect();
+    let l_valid: Vec<bool> = (0..nb)
+        .map(|k| f[k] >= opts.ol_min_hz && coh[k] >= opts.ol_min_coh && h[k].re.is_finite())
+        .collect();
     let l_all = cross::open_loop(&h);
-    let l: Vec<Complex32> = (0..nb).map(|k| if l_valid[k] { l_all[k] } else { Complex32::new(f32::NAN, f32::NAN) }).collect();
-    let l_mag: Vec<f32> = l.iter().map(|c| if c.re.is_finite() { c.norm() } else { f32::NAN }).collect();
+    let l: Vec<Complex32> = (0..nb)
+        .map(|k| {
+            if l_valid[k] {
+                l_all[k]
+            } else {
+                Complex32::new(f32::NAN, f32::NAN)
+            }
+        })
+        .collect();
+    let l_mag: Vec<f32> = l
+        .iter()
+        .map(|c| if c.re.is_finite() { c.norm() } else { f32::NAN })
+        .collect();
     let l_mag_db: Vec<f32> = l_mag.iter().map(|m| db20(*m)).collect();
-    let mut l_phase_deg: Vec<f32> = l.iter().map(|c| if c.re.is_finite() { c.arg().to_degrees() } else { f32::NAN }).collect();
+    let mut l_phase_deg: Vec<f32> = l
+        .iter()
+        .map(|c| {
+            if c.re.is_finite() {
+                c.arg().to_degrees()
+            } else {
+                f32::NAN
+            }
+        })
+        .collect();
     cross::unwrap_deg(&mut l_phase_deg);
     let s = cross::sensitivity(&h);
     let s_mag_db: Vec<f32> = s.iter().map(|c| db20(c.norm())).collect();
 
     // ---- metrics --------------------------------------------------------------
-    let bw_valid: Vec<bool> = (0..nb).map(|k| coh[k] >= opts.bw_min_coh && h_mag_db[k].is_finite()).collect();
+    let bw_valid: Vec<bool> = (0..nb)
+        .map(|k| coh[k] >= opts.bw_min_coh && h_mag_db[k].is_finite())
+        .collect();
     let bandwidth_hz = cross::interp_crossing(&f, &h_mag_db, -3.0, &bw_valid, true);
     let crossover_hz = cross::interp_crossing(&f, &l_mag, 1.0, &l_valid, true);
-    let phase_margin_deg = if crossover_hz.is_finite() { 180.0 + interp_at(&f, &l_phase_deg, crossover_hz) } else { f32::NAN };
-    let max_phase_margin_deg = l_phase_deg.iter().zip(&l_valid).filter(|(p, v)| **v && p.is_finite()).map(|(p, _)| 180.0 + *p).fold(f32::NAN, f32::max);
+    let phase_margin_deg = if crossover_hz.is_finite() {
+        180.0 + interp_at(&f, &l_phase_deg, crossover_hz)
+    } else {
+        f32::NAN
+    };
+    let max_phase_margin_deg = l_phase_deg
+        .iter()
+        .zip(&l_valid)
+        .filter(|(p, v)| **v && p.is_finite())
+        .map(|(p, _)| 180.0 + *p)
+        .fold(f32::NAN, f32::max);
     let in_band = |k: usize, lo: f32, hi: f32| f[k] > lo && f[k] < hi;
     let (mut mr_db, mut mr_hz) = (f32::NAN, f32::NAN);
     let (mut sp_db, mut sp_hz) = (f32::NAN, f32::NAN);
     for k in 0..nb {
         if in_band(k, 0.0, opts.max_hz) && coh[k] >= opts.bw_min_coh {
-            if h_mag_db[k].is_finite() && !(h_mag_db[k] <= mr_db) {
+            if h_mag_db[k].is_finite() && (mr_db.is_nan() || h_mag_db[k] > mr_db) {
                 mr_db = h_mag_db[k];
                 mr_hz = f[k];
             }
-            if s_mag_db[k].is_finite() && !(s_mag_db[k] <= sp_db) {
+            if s_mag_db[k].is_finite() && (sp_db.is_nan() || s_mag_db[k] > sp_db) {
                 sp_db = s_mag_db[k];
                 sp_hz = f[k];
             }
         }
     }
-    let (dx, dy): (Vec<f32>, Vec<f32>) = (0..nb).filter(|&k| l_valid[k] && in_band(k, opts.delay_band_hz.0, opts.delay_band_hz.1) && l_phase_deg[k].is_finite()).map(|k| (f[k], l_phase_deg[k])).unzip();
+    let (dx, dy): (Vec<f32>, Vec<f32>) = (0..nb)
+        .filter(|&k| {
+            l_valid[k]
+                && in_band(k, opts.delay_band_hz.0, opts.delay_band_hz.1)
+                && l_phase_deg[k].is_finite()
+        })
+        .map(|k| (f[k], l_phase_deg[k]))
+        .unzip();
     let loop_delay_ms = -lsq_slope(&dx, &dy) / 360.0 * 1000.0;
-    let lf: Vec<f32> = (0..nb).filter(|&k| in_band(k, opts.lf_band_hz.0, opts.lf_band_hz.1) && coh[k] > opts.bw_min_coh && h_mag_db[k].is_finite()).map(|k| h_mag_db[k]).collect();
-    let low_freq_err_db = if lf.is_empty() { f32::NAN } else { lf.iter().sum::<f32>() / lf.len() as f32 };
-    let cb: Vec<f32> = (0..nb).filter(|&k| in_band(k, opts.coh_band_hz.0, opts.coh_band_hz.1)).map(|k| coh[k]).collect();
-    let coherence_mean = if cb.is_empty() { f32::NAN } else { cb.iter().sum::<f32>() / cb.len() as f32 };
+    let lf: Vec<f32> = (0..nb)
+        .filter(|&k| {
+            in_band(k, opts.lf_band_hz.0, opts.lf_band_hz.1)
+                && coh[k] > opts.bw_min_coh
+                && h_mag_db[k].is_finite()
+        })
+        .map(|k| h_mag_db[k])
+        .collect();
+    let low_freq_err_db = if lf.is_empty() {
+        f32::NAN
+    } else {
+        lf.iter().sum::<f32>() / lf.len() as f32
+    };
+    let cb: Vec<f32> = (0..nb)
+        .filter(|&k| in_band(k, opts.coh_band_hz.0, opts.coh_band_hz.1))
+        .map(|k| coh[k])
+        .collect();
+    let coherence_mean = if cb.is_empty() {
+        f32::NAN
+    } else {
+        cb.iter().sum::<f32>() / cb.len() as f32
+    };
     let mut noise_floor_hz = f32::NAN;
     let mut ever = false;
     for k in 1..nb {
@@ -191,7 +282,11 @@ pub fn frequency_response(log: &FlightLog, axis: Axis, opts: &ChirpOpts) -> Opti
             let wanted = -(180.0 - pm);
             let cx = cross::interp_crossing(&f, &l_phase_deg, wanted, &l_valid, true);
             let mag = interp_at(&f, &l_mag, cx);
-            let gain_to_target = if mag.is_finite() && mag > 0.0 { 1.0 / mag } else { f32::NAN };
+            let gain_to_target = if mag.is_finite() && mag > 0.0 {
+                1.0 / mag
+            } else {
+                f32::NAN
+            };
             let (g0, g1, dg) = opts.gain_scan;
             let mut g = g1;
             let mut best = f32::NAN;
@@ -202,7 +297,12 @@ pub fn frequency_response(log: &FlightLog, axis: Axis, opts: &ChirpOpts) -> Opti
                 }
                 g -= dg;
             }
-            FrTarget { pm_deg: pm, crossover_hz: cx, gain_to_target, gain_for_sens_limit: best }
+            FrTarget {
+                pm_deg: pm,
+                crossover_hz: cx,
+                gain_to_target,
+                gain_for_sens_limit: best,
+            }
         })
         .collect();
     // step from H
@@ -225,7 +325,11 @@ pub fn frequency_response(log: &FlightLog, axis: Axis, opts: &ChirpOpts) -> Opti
         segment_size: nfft,
         n_windows: acc.n_windows,
         n_sweeps,
-        sweep_seconds: if n_sweeps > 0 { sweep_s / n_sweeps as f32 } else { 0.0 },
+        sweep_seconds: if n_sweeps > 0 {
+            sweep_s / n_sweeps as f32
+        } else {
+            0.0
+        },
         metrics: FrMetrics {
             bandwidth_hz,
             crossover_hz,
@@ -260,13 +364,27 @@ fn step_metrics(t: &[f32], s: &[f32]) -> (f32, f32, f32) {
     }
     let peak = s.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     let overshoot = peak / ss;
-    let t10 = t.iter().zip(s).find(|(_, v)| **v >= 0.1 * ss).map(|(t, _)| *t);
-    let t90 = t.iter().zip(s).find(|(_, v)| **v >= 0.9 * ss).map(|(t, _)| *t);
+    let t10 = t
+        .iter()
+        .zip(s)
+        .find(|(_, v)| **v >= 0.1 * ss)
+        .map(|(t, _)| *t);
+    let t90 = t
+        .iter()
+        .zip(s)
+        .find(|(_, v)| **v >= 0.9 * ss)
+        .map(|(t, _)| *t);
     let rise = match (t10, t90) {
         (Some(a), Some(b)) => b - a,
         _ => f32::NAN,
     };
-    let settle = s.iter().enumerate().rev().find(|(_, v)| ((**v - ss) / ss).abs() > 0.05).map(|(i, _)| t[(i + 1).min(n - 1)]).unwrap_or(0.0);
+    let settle = s
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, v)| ((**v - ss) / ss).abs() > 0.05)
+        .map(|(i, _)| t[(i + 1).min(n - 1)])
+        .unwrap_or(0.0);
     (overshoot, rise, settle)
 }
 
@@ -299,7 +417,15 @@ pub(crate) mod tests_support {
     }
 
     /// Simulate the closed loop with a chirp reference; returns (setpoint, gyro).
-    pub(crate) fn simulate(fs: f64, secs: f64, sweeps: usize, k: f64, tau: f64, td: f64, noise_amp: f32) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
+    pub(crate) fn simulate(
+        fs: f64,
+        secs: f64,
+        sweeps: usize,
+        k: f64,
+        tau: f64,
+        td: f64,
+        noise_amp: f32,
+    ) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
         let dt = 1.0 / fs;
         let n_per = (secs * fs) as usize;
         let n = n_per * sweeps;
@@ -311,14 +437,18 @@ pub(crate) mod tests_support {
         for i in 0..n {
             let t = (i % n_per) as f64 * dt;
             let f = f0 * (f1 / f0).powf(t / secs);
-            let phase = std::f64::consts::TAU * f0 * secs / (f1 / f0).ln() * ((f1 / f0).powf(t / secs) - 1.0);
+            let phase = std::f64::consts::TAU * f0 * secs / (f1 / f0).ln()
+                * ((f1 / f0).powf(t / secs) - 1.0);
             r.push((230.0 * phase.sin()) as f32);
             d2.push((f * 10.0) as f32);
         }
         let mut y = vec![0f32; n];
         let mut v = 0.0f64;
         let mut yy = 0.0f64;
-        assert!(delay >= 1, "the loop needs at least one sample of delay to be causal");
+        assert!(
+            delay >= 1,
+            "the loop needs at least one sample of delay to be causal"
+        );
         let mut ubuf = vec![0.0f64; delay + 1];
         let mut seed = 0x1234_5678_9abc_def0u64;
         for i in 0..n {
@@ -338,22 +468,45 @@ pub(crate) mod tests_support {
         (r, y, d2)
     }
 
-    pub(crate) fn make_log(fs: f64, r: Vec<f32>, y: Vec<f32>, d2: Vec<f32>, with_segments: bool) -> FlightLog {
+    pub(crate) fn make_log(
+        fs: f64,
+        r: Vec<f32>,
+        y: Vec<f32>,
+        d2: Vec<f32>,
+        with_segments: bool,
+    ) -> FlightLog {
         let n = r.len();
         let t: Vec<f32> = (0..n).map(|i| (i as f64 / fs) as f32).collect();
         let z = vec![0f32; n];
-        let mut axes: [AxisSeries; 3] = std::array::from_fn(|_| AxisSeries { setpoint: z.clone(), gyro_filt: z.clone(), ..Default::default() });
+        let mut axes: [AxisSeries; 3] = std::array::from_fn(|_| AxisSeries {
+            setpoint: z.clone(),
+            gyro_filt: z.clone(),
+            ..Default::default()
+        });
         axes[0].setpoint = r;
         axes[0].gyro_filt = y;
         let d1: Vec<f32> = vec![0.0; n];
         let chirp = with_segments.then(|| ChirpInfo {
             config: Some(ChirpConfig::default()),
-            segments: vec![ChirpSegment { axis: Axis::Roll, i0: 0, i1: n, t0_s: 0.0, t1_s: t[n - 1], f_start_hz: 0.2, f_end_hz: 600.0, source: ChirpGate::Debug, angle_mode: false }],
+            segments: vec![ChirpSegment {
+                axis: Axis::Roll,
+                i0: 0,
+                i1: n,
+                t0_s: 0.0,
+                t1_s: t[n - 1],
+                f_start_hz: 0.2,
+                f_end_hz: 600.0,
+                source: ChirpGate::Debug,
+                angle_mode: false,
+            }],
             debug_is_chirp: true,
         });
         FlightLog {
             id: LogId("chirp".into()),
-            firmware: Firmware::Betaflight { version: "2026.6.1".into(), api: (1, 47) },
+            firmware: Firmware::Betaflight {
+                version: "2026.6.1".into(),
+                api: (1, 47),
+            },
             fs_hz: fs,
             t,
             axes,
@@ -397,8 +550,16 @@ mod tests {
         }
         let (_, ph) = l_analytic(fx, K, TAU, TD);
         let pm = 180.0 + ph;
-        assert!(((m.crossover_hz as f64 - fx) / fx).abs() < 0.02, "crossover {} vs {fx}", m.crossover_hz);
-        assert!((m.phase_margin_deg as f64 - pm).abs() < 2.0, "PM {} vs {pm}", m.phase_margin_deg);
+        assert!(
+            ((m.crossover_hz as f64 - fx) / fx).abs() < 0.02,
+            "crossover {} vs {fx}",
+            m.crossover_hz
+        );
+        assert!(
+            (m.phase_margin_deg as f64 - pm).abs() < 2.0,
+            "PM {} vs {pm}",
+            m.phase_margin_deg
+        );
         // analytic −3 dB bandwidth and resonant peak of H = L/(1+L)
         let mut fb = 1.0f64;
         let mut mr = f64::NEG_INFINITY;
@@ -410,18 +571,36 @@ mod tests {
             mr = mr.max(db);
             f += 0.05;
         }
-        while 20.0 * h_from_l(l_analytic(fb, K, TAU, TD).0, l_analytic(fb, K, TAU, TD).1).0.log10() > -3.0 {
+        while 20.0
+            * h_from_l(l_analytic(fb, K, TAU, TD).0, l_analytic(fb, K, TAU, TD).1)
+                .0
+                .log10()
+            > -3.0
+        {
             fb += 0.01;
         }
-        assert!(((m.bandwidth_hz as f64 - fb) / fb).abs() < 0.03, "bandwidth {} vs {fb}", m.bandwidth_hz);
-        assert!((m.resonant_peak_db as f64 - mr).abs() < 0.3, "Mr {} vs {mr}", m.resonant_peak_db);
+        assert!(
+            ((m.bandwidth_hz as f64 - fb) / fb).abs() < 0.03,
+            "bandwidth {} vs {fb}",
+            m.bandwidth_hz
+        );
+        assert!(
+            (m.resonant_peak_db as f64 - mr).abs() < 0.3,
+            "Mr {} vs {mr}",
+            m.resonant_peak_db
+        );
         // recovered open loop vs analytic over 2–150 Hz
         for (k, f) in fr.f_hz.iter().enumerate() {
             if *f < 2.0 || *f > 150.0 {
                 continue;
             }
             let (mag, ph) = l_analytic(*f as f64, K, TAU, TD);
-            assert!((fr.l_mag_db[k] as f64 - 20.0 * mag.log10()).abs() < 1.0, "f={f} |L| {} vs {}", fr.l_mag_db[k], 20.0 * mag.log10());
+            assert!(
+                (fr.l_mag_db[k] as f64 - 20.0 * mag.log10()).abs() < 1.0,
+                "f={f} |L| {} vs {}",
+                fr.l_mag_db[k],
+                20.0 * mag.log10()
+            );
             let dphi = ((fr.l_phase_deg[k] as f64 - ph + 180.0).rem_euclid(360.0)) - 180.0;
             assert!(dphi.abs() < 5.0, "f={f} ∠L {} vs {ph}", fr.l_phase_deg[k]);
         }
@@ -435,8 +614,14 @@ mod tests {
             while f <= 140.0 {
                 let p = l_analytic(f, K, TAU, TD).1;
                 let mut d = p - prev;
-                while d > 180.0 { d -= 360.0; acc -= 360.0; }
-                while d < -180.0 { d += 360.0; acc += 360.0; }
+                while d > 180.0 {
+                    d -= 360.0;
+                    acc -= 360.0;
+                }
+                while d < -180.0 {
+                    d += 360.0;
+                    acc += 360.0;
+                }
                 prev = p;
                 pts.push((f, p + acc));
                 f += 1.0;
@@ -445,9 +630,15 @@ mod tests {
             let y: Vec<f32> = pts.iter().map(|p| p.1 as f32).collect();
             -(lsq_slope(&x, &y) as f64) / 360.0 * 1000.0
         };
-        assert!((m.loop_delay_ms as f64 - slope_ref).abs() < 0.15, "delay {} vs {slope_ref}", m.loop_delay_ms);
+        assert!(
+            (m.loop_delay_ms as f64 - slope_ref).abs() < 0.15,
+            "delay {} vs {slope_ref}",
+            m.loop_delay_ms
+        );
         assert!(m.targets.len() == 3 && m.targets[1].pm_deg == 60.0);
-        assert!(m.targets[1].gain_to_target.is_finite() && m.targets[1].gain_for_sens_limit.is_finite());
+        assert!(
+            m.targets[1].gain_to_target.is_finite() && m.targets[1].gain_for_sens_limit.is_finite()
+        );
         assert!(m.step_overshoot.is_finite() && m.step_rise_ms.is_finite());
     }
 
@@ -457,7 +648,13 @@ mod tests {
         let (r, y, d2) = simulate(fs, 20.0, 2, K, TAU, TD, 150.0);
         let log = make_log(fs, r, y, d2, true);
         let fr = frequency_response(&log, Axis::Roll, &ChirpOpts::default()).unwrap();
-        let hi: Vec<usize> = fr.f_hz.iter().enumerate().filter(|(_, f)| **f > 300.0 && **f < 500.0).map(|(k, _)| k).collect();
+        let hi: Vec<usize> = fr
+            .f_hz
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| **f > 300.0 && **f < 500.0)
+            .map(|(k, _)| k)
+            .collect();
         let mean_coh = hi.iter().map(|k| fr.coherence[*k]).sum::<f32>() / hi.len() as f32;
         assert!(mean_coh < 0.9, "{mean_coh}");
         assert!(hi.iter().any(|k| fr.l_mag_db[*k].is_nan()));
@@ -497,13 +694,18 @@ mod diag {
         let (r, y, d2) = simulate(fs, 20.0, 3, K, TAU, TD, 0.0);
         let log = make_log(fs, r, y, d2, true);
         let fr = frequency_response(&log, Axis::Roll, &ChirpOpts::default()).unwrap();
-        for f in [2.0, 5.0, 10.0, 20.0, 30.0, 40.0, 50.0, 80.0, 120.0, 150.0, 300.0] {
+        for f in [
+            2.0, 5.0, 10.0, 20.0, 30.0, 40.0, 50.0, 80.0, 120.0, 150.0, 300.0,
+        ] {
             let k = fr.f_hz.iter().position(|x| *x >= f).unwrap();
             let (lm, lp) = l_analytic(fr.f_hz[k] as f64, K, TAU, TD);
             let (hm, hp) = h_from_l(lm, lp);
             println!("f={:7.2} coh={:.3} |H| est {:+.2} ref {:+.2} dB  ∠H est {:+.1} ref {:+.1} | |L| est {:+.2} ref {:+.2} dB ∠L est {:+.1} ref {:+.1}",
                 fr.f_hz[k], fr.coherence[k], fr.h_mag_db[k], 20.0 * hm.log10(), fr.h_phase_deg[k], hp, fr.l_mag_db[k], 20.0 * lm.log10(), fr.l_phase_deg[k], lp);
         }
-        println!("windows {} crossover {} PM {}", fr.n_windows, fr.metrics.crossover_hz, fr.metrics.phase_margin_deg);
+        println!(
+            "windows {} crossover {} PM {}",
+            fr.n_windows, fr.metrics.crossover_hz, fr.metrics.phase_margin_deg
+        );
     }
 }

@@ -110,7 +110,12 @@ pub trait FlightController: Send {
     fn reboot_and_reconnect(&mut self) -> Result<(), FcError>;
     fn list_logs(&mut self) -> Result<Vec<LogEntry>, FcError>;
     /// `id = None` → the most recent log.
-    fn download_log(&mut self, id: Option<u32>, progress: ProgressFn<'_>, cancel: &AtomicBool) -> Result<Vec<u8>, FcError>;
+    fn download_log(
+        &mut self,
+        id: Option<u32>,
+        progress: ProgressFn<'_>,
+        cancel: &AtomicBool,
+    ) -> Result<Vec<u8>, FcError>;
     /// Human-readable text the pilot can apply by hand (BF CLI `set` lines / AP `NAME,VALUE`).
     fn export_text(&self, recs: &[Recommendation]) -> String;
 }
@@ -123,7 +128,9 @@ pub fn export_text_for(firmware: Option<&Firmware>, recs: &[Recommendation]) -> 
     }
     match firmware {
         Some(Firmware::ArduCopter { .. }) => {
-            let mut s = String::from("# PID Tuner — ArduPilot parameters (load with Mission Planner / QGC)\n");
+            let mut s = String::from(
+                "# PID Tuner — ArduPilot parameters (load with Mission Planner / QGC)\n",
+            );
             for r in accepted {
                 s.push_str(&format!("{},{}\n", r.param.name(), r.new));
             }

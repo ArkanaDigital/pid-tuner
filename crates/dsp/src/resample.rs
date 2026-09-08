@@ -32,7 +32,11 @@ pub fn interp_linear(t_src: &[f64], y_src: &[f32], t_dst: &[f32]) -> Vec<f32> {
         }
         let (ta, tb) = (t_src[j], t_src[j + 1]);
         let (ya, yb) = (y_src[j], y_src[j + 1]);
-        let f = if tb > ta { ((t - ta) / (tb - ta)) as f32 } else { 0.0 };
+        let f = if tb > ta {
+            ((t - ta) / (tb - ta)) as f32
+        } else {
+            0.0
+        };
         out.push(ya + (yb - ya) * f.clamp(0.0, 1.0));
     }
     out
@@ -56,7 +60,11 @@ pub fn interp_nearest(t_src: &[f64], y_src: &[f32], t_dst: &[f32]) -> Vec<f32> {
         while j + 1 < n && t_src[j + 1] <= t {
             j += 1;
         }
-        let k = if j + 1 < n && (t_src[j + 1] - t) < (t - t_src[j]) { j + 1 } else { j };
+        let k = if j + 1 < n && (t_src[j + 1] - t) < (t - t_src[j]) {
+            j + 1
+        } else {
+            j
+        };
         out.push(y_src[k]);
     }
     out

@@ -207,11 +207,21 @@ mod tests {
         let delay = 10usize;
         let mut y = vec![0f32; u.len()];
         y[delay..].copy_from_slice(&u[..u.len() - delay]);
-        let step = averaged_step(&u, &y, fs, 4000, Regularization::Gaussian { cutoff_hz: 25.0 });
+        let step = averaged_step(
+            &u,
+            &y,
+            fs,
+            4000,
+            Regularization::Gaussian { cutoff_hz: 25.0 },
+        );
         for k in [200usize, 400, 800] {
             assert_relative_eq!(step[k], 1.0, epsilon = 6e-2);
         }
-        assert!(step[5] < 0.3, "before the delay the response must be near zero: {}", step[5]);
+        assert!(
+            step[5] < 0.3,
+            "before the delay the response must be near zero: {}",
+            step[5]
+        );
         assert!(step[60] > 0.8);
     }
 

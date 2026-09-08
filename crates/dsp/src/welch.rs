@@ -86,7 +86,11 @@ pub fn welch(x: &[f32], fs: f64, opts: WelchOpts) -> Psd {
         .iter()
         .enumerate()
         .map(|(k, p)| {
-            let p = if n_windows > 0 { p / n_windows as f64 } else { 0.0 };
+            let p = if n_windows > 0 {
+                p / n_windows as f64
+            } else {
+                0.0
+            };
             let two = if k == 0 || k == nb - 1 { 1.0 } else { 2.0 };
             let v = two * p * corr2 / (n * fs);
             (10.0 * v.max(1e-30).log10()) as f32
@@ -160,7 +164,14 @@ mod tests {
         // amplitude 1 sine → power 0.5 W concentrated in one bin of width fs/N.
         let fs = 2000.0;
         let x = sine(250.0, fs, 32768, 1.0);
-        let psd = welch(&x, fs as f64, WelchOpts { nfft: 2048, ..Default::default() });
+        let psd = welch(
+            &x,
+            fs as f64,
+            WelchOpts {
+                nfft: 2048,
+                ..Default::default()
+            },
+        );
         let k = bin_for(&psd, 250.0);
         let (kmax, _) = psd
             .psd_db

@@ -35,9 +35,15 @@ pub fn decode_field(p: &[u8], off: usize, t: FieldType) -> Value {
         FieldType::U32 => Value::U(u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as u64),
         FieldType::F32 => Value::F(f32::from_le_bytes([b[0], b[1], b[2], b[3]]) as f64),
         FieldType::F16 => Value::F(half_to_f32(u16::from_le_bytes([b[0], b[1]])) as f64),
-        FieldType::F64 => Value::F(f64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]])),
-        FieldType::I64 => Value::I(i64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]])),
-        FieldType::U64 => Value::U(u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]])),
+        FieldType::F64 => Value::F(f64::from_le_bytes([
+            b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+        ])),
+        FieldType::I64 => Value::I(i64::from_le_bytes([
+            b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+        ])),
+        FieldType::U64 => Value::U(u64::from_le_bytes([
+            b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+        ])),
         // pymavlink divides by 1/mult for accuracy: 12345 -> 123.45 exactly
         FieldType::C16 => Value::F(i16::from_le_bytes([b[0], b[1]]) as f64 / 100.0),
         FieldType::CU16 => Value::F(u16::from_le_bytes([b[0], b[1]]) as f64 / 100.0),
@@ -47,7 +53,11 @@ pub fn decode_field(p: &[u8], off: usize, t: FieldType) -> Value {
         FieldType::N4 => Value::Str(cstr(&b[..4])),
         FieldType::N16 => Value::Str(cstr(&b[..16])),
         FieldType::Z64 => Value::Str(cstr(&b[..64])),
-        FieldType::A => Value::I16x32((0..32).map(|k| i16::from_le_bytes([b[2 * k], b[2 * k + 1]])).collect()),
+        FieldType::A => Value::I16x32(
+            (0..32)
+                .map(|k| i16::from_le_bytes([b[2 * k], b[2 * k + 1]]))
+                .collect(),
+        ),
     }
 }
 
@@ -94,7 +104,11 @@ impl<'a> Index<'a> {
             return None;
         }
         let off = def.offsets[ci];
-        Some(self.payloads(def, msg).map(|p| decode_field(p, off, t).as_f64().unwrap_or(f64::NAN)).collect())
+        Some(
+            self.payloads(def, msg)
+                .map(|p| decode_field(p, off, t).as_f64().unwrap_or(f64::NAN))
+                .collect(),
+        )
     }
 
     pub fn column_u64(&self, msg: &str, col: &str) -> Option<Vec<u64>> {
@@ -102,7 +116,16 @@ impl<'a> Index<'a> {
         let ci = def.col(col)?;
         let t = def.types[ci];
         let off = def.offsets[ci];
-        Some(self.payloads(def, msg).map(|p| match decode_field(p, off, t) { Value::U(v) => v, Value::I(v) => v as u64, Value::F(v) => v as u64, _ => 0 }).collect())
+        Some(
+            self.payloads(def, msg)
+                .map(|p| match decode_field(p, off, t) {
+                    Value::U(v) => v,
+                    Value::I(v) => v as u64,
+                    Value::F(v) => v as u64,
+                    _ => 0,
+                })
+                .collect(),
+        )
     }
 
     pub fn column_i16x32(&self, msg: &str, col: &str) -> Option<Vec<Vec<i16>>> {
@@ -112,7 +135,14 @@ impl<'a> Index<'a> {
             return None;
         }
         let off = def.offsets[ci];
-        Some(self.payloads(def, msg).map(|p| match decode_field(p, off, FieldType::A) { Value::I16x32(v) => v, _ => vec![] }).collect())
+        Some(
+            self.payloads(def, msg)
+                .map(|p| match decode_field(p, off, FieldType::A) {
+                    Value::I16x32(v) => v,
+                    _ => vec![],
+                })
+                .collect(),
+        )
     }
 
     pub fn column_str(&self, msg: &str, col: &str) -> Option<Vec<String>> {
@@ -120,7 +150,14 @@ impl<'a> Index<'a> {
         let ci = def.col(col)?;
         let t = def.types[ci];
         let off = def.offsets[ci];
-        Some(self.payloads(def, msg).map(|p| match decode_field(p, off, t) { Value::Str(s) => s, v => format!("{v:?}") }).collect())
+        Some(
+            self.payloads(def, msg)
+                .map(|p| match decode_field(p, off, t) {
+                    Value::Str(s) => s,
+                    v => format!("{v:?}"),
+                })
+                .collect(),
+        )
     }
 
     /// One decoded row (all columns) by row index.
@@ -128,13 +165,23 @@ impl<'a> Index<'a> {
         let def = self.def(msg)?;
         let o = *self.offsets(msg).get(i)?;
         let p = &self.bytes[o..o + def.payload_len()];
-        Some(def.columns.iter().enumerate().map(|(k, c)| (c.clone(), decode_field(p, def.offsets[k], def.types[k]))).collect())
+        Some(
+            def.columns
+                .iter()
+                .enumerate()
+                .map(|(k, c)| (c.clone(), decode_field(p, def.offsets[k], def.types[k])))
+                .collect(),
+        )
     }
 
     /// Distinct instance ids (from the `#` unit column), in first-seen order.
     pub fn instances(&self, msg: &str) -> Vec<u8> {
-        let Some(def) = self.def(msg) else { return vec![] };
-        let Some(ci) = def.instance_col else { return vec![] };
+        let Some(def) = self.def(msg) else {
+            return vec![];
+        };
+        let Some(ci) = def.instance_col else {
+            return vec![];
+        };
         let off = def.offsets[ci];
         let t = def.types[ci];
         let mut out: Vec<u8> = Vec::new();
@@ -149,17 +196,30 @@ impl<'a> Index<'a> {
 
     /// Row indices belonging to one instance.
     pub fn instance_rows(&self, msg: &str, inst: u8) -> Vec<usize> {
-        let Some(def) = self.def(msg) else { return vec![] };
-        let Some(ci) = def.instance_col else { return (0..self.count(msg)).collect() };
+        let Some(def) = self.def(msg) else {
+            return vec![];
+        };
+        let Some(ci) = def.instance_col else {
+            return (0..self.count(msg)).collect();
+        };
         let off = def.offsets[ci];
         let t = def.types[ci];
-        self.payloads(def, msg).enumerate().filter(|(_, p)| decode_field(p, off, t).as_f64().unwrap_or(0.0) as u8 == inst).map(|(i, _)| i).collect()
+        self.payloads(def, msg)
+            .enumerate()
+            .filter(|(_, p)| decode_field(p, off, t).as_f64().unwrap_or(0.0) as u8 == inst)
+            .map(|(i, _)| i)
+            .collect()
     }
 
     /// Column restricted to one instance.
     pub fn column_f64_inst(&self, msg: &str, inst: u8, col: &str) -> Option<Vec<f64>> {
         let all = self.column_f64(msg, col)?;
-        Some(self.instance_rows(msg, inst).into_iter().map(|i| all[i]).collect())
+        Some(
+            self.instance_rows(msg, inst)
+                .into_iter()
+                .map(|i| all[i])
+                .collect(),
+        )
     }
 }
 

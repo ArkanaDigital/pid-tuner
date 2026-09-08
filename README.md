@@ -20,6 +20,8 @@ crates/recommend   rule engine (Betaflight `bf.rs`, ArduPilot `ap.rs` + generate
 crates/session     wizard state machine, firmware-aware guards, overrides, persistence
 crates/fc-msp      MSPv2 codec, serial transport, Betaflight layouts, apply+verify
 crates/fc-mavlink  MAVLink 2 (ardupilotmega): params with typed read-back, log download, reboot, mock FC
+crates/appconfig   settings file (provider, model, prices, budget) with per-machine encrypted API keys
+crates/llm         LLM providers (Anthropic, OpenAI, Gemini, DeepSeek), retry, tool-calling agent loop, transcript
 crates/cli         `pidtool` headless analysis
 src-tauri          Tauri 2 shell (commands, report export)
 ui                 React + uPlot front-end
@@ -33,7 +35,9 @@ fixtures           sample logs (see SOURCES.md)
 pnpm install
 pnpm tauri dev                                  # desktop app
 PIDTUNER_OPEN=fixtures/bf/x.bbl pnpm tauri dev  # auto-open a log in "Quick look"
-cargo test --workspace                          # Rust tests (dsp, analysis, session, ap-ingest goldens, fc-msp / fc-mavlink mock FCs)
+cargo test --workspace                          # Rust tests (dsp, analysis, session, ap-ingest goldens, fc-msp / fc-mavlink mock FCs, llm wiremock)
+pnpm typecheck && pnpm test                     # TypeScript + vitest (cost math, shortcuts, AI panel)
+DEEPSEEK_API_KEY=... cargo test -p llm --test live_deepseek   # optional live round-trip against the real API
 cargo run --release -p pidtool -- analyze fixtures/bf/bf_4.3.0_matekf405_LOG00001.BFL
 cargo run --release -p pidtool -- analyze fixtures/ap/copter_4.6.3_quad_pid_msgs.bin
 scripts/gen_ap_golden.py fixtures/ap/x.bin      # regenerate a golden JSON with pymavlink (venv with pymavlink)
@@ -77,6 +81,32 @@ Every ArduPilot-derived number is cited to its source file/symbol in `crates/dom
 `crates/session/src/guards.rs` and `crates/fc-mavlink`; parser behaviour is pinned by golden tests
 generated with pymavlink (`fixtures/ap/*.golden.json`). Not yet validated on real hardware — a loop-rate
 log from an F4/F7 quad with the settings above is the next fixture (`fixtures/ap/copter_hw_loop_rate.bin`).
+
+## AI helper (optional)
+
+The wizard and Quick look have an "AI helper" panel that lets a language model inspect the
+current session through tool calls (log quality, step response, frequency response, spectrum
+peaks, anomalies, guards, current recommendations, parameter bounds, flight protocol, FC status)
+and answer in Bahasa Indonesia (English selectable). It is **propose-only**: it may edit or
+accept existing recommendations and add new, unaccepted ones within the parameter bounds
+(`bf_param_meta.rs` / `apm.pdef.xml`), but it never writes to the flight controller and never
+advances the wizard — those buttons stay yours.
+
+* **Settings page** (⚙): active provider (Anthropic, OpenAI, Gemini, DeepSeek), API key per
+  provider, model (known list or custom), optional HTTPS base URL, language, token budget per
+  session, editable price table. "Test koneksi" sends a tiny request and reports latency.
+* **Keys** live in `settings.json` in the app data directory, encrypted with ChaCha20-Poly1305
+  under a key derived from the machine id (light protection: anyone with the file *and* the
+  machine id can decrypt). Keys never appear in transcripts, events, logs or error messages.
+* **Cost**: each reply shows input/output tokens and an estimated cost from the price table; the
+  panel header shows the session total and the budget bar. When the budget is reached the agent
+  refuses further calls until you raise it.
+* **Transcripts** are stored per session (`<session>/ai/transcript.json`) and survive restarts.
+* Shortcut chips per step ("Jelaskan kualitas log ini", "Kenapa guard gagal?", "Lebih konservatif",
+  "Nilai before/after", …) send a canned prompt.
+
+Wire formats used: Anthropic Messages API, OpenAI Responses API, Gemini `generateContent`,
+DeepSeek chat completions (with `reasoning_content` echo). Non-HTTPS base URLs are rejected.
 
 ## Anomaly detection
 

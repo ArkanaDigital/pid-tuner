@@ -11,8 +11,13 @@ pub use domain::fc::FcStatus;
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum GuardOutcome {
     Pass,
-    Fail { message: String, fix_hint: Option<String> },
-    NeedsAction { message: String },
+    Fail {
+        message: String,
+        fix_hint: Option<String>,
+    },
+    NeedsAction {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,7 +58,9 @@ struct GuardDef {
 /// Firmware the session is about: from the FC when connected, else from the
 /// first imported log, else unknown (both guard sets apply where sensible).
 fn session_fw(c: &GuardCtx) -> Option<Fw> {
-    let f = c.fc.and_then(|f| f.firmware.clone()).or_else(|| c.session.firmware.clone())?;
+    let f =
+        c.fc.and_then(|f| f.firmware.clone())
+            .or_else(|| c.session.firmware.clone())?;
     Some(match f {
         Firmware::Betaflight { .. } => Fw::Bf,
         Firmware::ArduCopter { .. } => Fw::Ap,
@@ -65,10 +72,15 @@ fn pass() -> GuardOutcome {
     GuardOutcome::Pass
 }
 fn fail(msg: impl Into<String>, hint: Option<&str>) -> GuardOutcome {
-    GuardOutcome::Fail { message: msg.into(), fix_hint: hint.map(str::to_string) }
+    GuardOutcome::Fail {
+        message: msg.into(),
+        fix_hint: hint.map(str::to_string),
+    }
 }
 fn action(msg: impl Into<String>) -> GuardOutcome {
-    GuardOutcome::NeedsAction { message: msg.into() }
+    GuardOutcome::NeedsAction {
+        message: msg.into(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -83,18 +95,38 @@ fn fc_connected(c: &GuardCtx) -> GuardOutcome {
 }
 
 fn fc_supported(c: &GuardCtx) -> GuardOutcome {
-    let Some(f) = c.fc.filter(|f| f.connected) else { return action("Not connected.") };
+    let Some(f) = c.fc.filter(|f| f.connected) else {
+        return action("Not connected.");
+    };
     match &f.firmware {
         Some(Firmware::Betaflight { version, .. }) => {
-            let ok = version.split('.').next().and_then(|m| m.parse::<u32>().ok()).map(|m| m >= 4).unwrap_or(false);
-            if ok { pass() } else { fail(format!("Betaflight {version} is not supported (need ≥ 4.3)."), None) }
+            let ok = version
+                .split('.')
+                .next()
+                .and_then(|m| m.parse::<u32>().ok())
+                .map(|m| m >= 4)
+                .unwrap_or(false);
+            if ok {
+                pass()
+            } else {
+                fail(
+                    format!("Betaflight {version} is not supported (need ≥ 4.3)."),
+                    None,
+                )
+            }
         }
         Some(Firmware::ArduCopter { version }) => {
             let mut it = version.split('.').map(|x| x.parse::<u32>().unwrap_or(0));
             let (maj, min) = (it.next().unwrap_or(0), it.next().unwrap_or(0));
-            if maj > 4 || (maj == 4 && min >= 4) { pass() } else { fail(format!("ArduCopter {version} is not supported (need ≥ 4.4: PIDx SRate and ISBH layouts)."), None) }
+            if maj > 4 || (maj == 4 && min >= 4) {
+                pass()
+            } else {
+                fail(format!("ArduCopter {version} is not supported (need ≥ 4.4: PIDx SRate and ISBH layouts)."), None)
+            }
         }
-        Some(Firmware::Unknown { product }) => fail(format!("Unsupported firmware: {product}"), None),
+        Some(Firmware::Unknown { product }) => {
+            fail(format!("Unsupported firmware: {product}"), None)
+        }
         None => action("Waiting for firmware identification…"),
     }
 }
@@ -107,7 +139,12 @@ fn fc_tune_read(c: &GuardCtx) -> GuardOutcome {
 }
 
 fn backup_taken(c: &GuardCtx) -> GuardOutcome {
-    if c.session.snapshots.iter().any(|s| s.label.starts_with("00-")) || c.fc.map(|f| f.snapshot_taken).unwrap_or(false) {
+    if c.session
+        .snapshots
+        .iter()
+        .any(|s| s.label.starts_with("00-"))
+        || c.fc.map(|f| f.snapshot_taken).unwrap_or(false)
+    {
         pass()
     } else {
         action("Take a full settings backup (diff all / param.pck) before changing anything.")
@@ -117,14 +154,21 @@ fn backup_taken(c: &GuardCtx) -> GuardOutcome {
 fn fc_disarmed(c: &GuardCtx) -> GuardOutcome {
     match c.fc {
         Some(f) if f.connected && !f.armed && f.heartbeat_age_s < 2.0 => pass(),
-        Some(f) if f.connected && f.armed => fail("Flight controller is ARMED. Remove props and disarm.", None),
-        Some(f) if f.connected => fail(format!("No heartbeat for {:.1} s.", f.heartbeat_age_s), Some("Reconnect the USB cable.")),
+        Some(f) if f.connected && f.armed => {
+            fail("Flight controller is ARMED. Remove props and disarm.", None)
+        }
+        Some(f) if f.connected => fail(
+            format!("No heartbeat for {:.1} s.", f.heartbeat_age_s),
+            Some("Reconnect the USB cable."),
+        ),
         _ => action("Not connected."),
     }
 }
 
 fn log_rate_ok(c: &GuardCtx) -> GuardOutcome {
-    let Some(f) = c.fc.filter(|f| f.connected) else { return action("Not connected.") };
+    let Some(f) = c.fc.filter(|f| f.connected) else {
+        return action("Not connected.");
+    };
     match (&f.firmware, f.log_rate_hz) {
         (Some(Firmware::Betaflight { .. }), Some(_)) if f.pid_logging_enabled == Some(false) => fail(
             "The blackbox field mask switches off PID, Setpoint or Gyro fields (blackbox_disable_*), so the log would be unusable.",
@@ -144,7 +188,9 @@ fn log_rate_ok(c: &GuardCtx) -> GuardOutcome {
 }
 
 fn raw_gyro_logging(c: &GuardCtx) -> GuardOutcome {
-    let Some(f) = c.fc.filter(|f| f.connected) else { return action("Not connected.") };
+    let Some(f) = c.fc.filter(|f| f.connected) else {
+        return action("Not connected.");
+    };
     match f.raw_gyro_logging_enabled {
         Some(true) => pass(),
         Some(false) => fail(
@@ -156,19 +202,42 @@ fn raw_gyro_logging(c: &GuardCtx) -> GuardOutcome {
 }
 
 fn storage_free(c: &GuardCtx) -> GuardOutcome {
-    let Some(f) = c.fc.filter(|f| f.connected) else { return action("Not connected.") };
+    let Some(f) = c.fc.filter(|f| f.connected) else {
+        return action("Not connected.");
+    };
     match f.storage_free_bytes {
         Some(b) if b >= 4 * 1024 * 1024 => pass(),
-        Some(b) => fail(format!("Only {:.1} MB free on the blackbox device.", b as f64 / 1e6), Some("Erase the flash / clear the SD card.")),
+        Some(b) => fail(
+            format!("Only {:.1} MB free on the blackbox device.", b as f64 / 1e6),
+            Some("Erase the flash / clear the SD card."),
+        ),
         None => action("Reading storage state…"),
     }
 }
 
 fn flight_done(which: Flight) -> fn(&GuardCtx) -> GuardOutcome {
     match which {
-        Flight::A => |c| if c.session.flight_done.contains_key(&Flight::A) { pass() } else { action("Fly the protocol, land, disarm, then tick 'flight done'.") },
-        Flight::B => |c| if c.session.flight_done.contains_key(&Flight::B) { pass() } else { action("Fly the protocol, land, disarm, then tick 'flight done'.") },
-        Flight::C => |c| if c.session.flight_done.contains_key(&Flight::C) { pass() } else { action("Fly the protocol, land, disarm, then tick 'flight done'.") },
+        Flight::A => |c| {
+            if c.session.flight_done.contains_key(&Flight::A) {
+                pass()
+            } else {
+                action("Fly the protocol, land, disarm, then tick 'flight done'.")
+            }
+        },
+        Flight::B => |c| {
+            if c.session.flight_done.contains_key(&Flight::B) {
+                pass()
+            } else {
+                action("Fly the protocol, land, disarm, then tick 'flight done'.")
+            }
+        },
+        Flight::C => |c| {
+            if c.session.flight_done.contains_key(&Flight::C) {
+                pass()
+            } else {
+                action("Fly the protocol, land, disarm, then tick 'flight done'.")
+            }
+        },
     }
 }
 
@@ -178,9 +247,27 @@ fn record<'a>(c: &'a GuardCtx, which: Flight) -> Option<&'a FlightRecord> {
 
 fn log_imported(which: Flight) -> fn(&GuardCtx) -> GuardOutcome {
     match which {
-        Flight::A => |c| if record(c, Flight::A).is_some() { pass() } else { action("Import the blackbox log for this flight.") },
-        Flight::B => |c| if record(c, Flight::B).is_some() { pass() } else { action("Import the blackbox log for this flight.") },
-        Flight::C => |c| if record(c, Flight::C).is_some() { pass() } else { action("Import the blackbox log for this flight.") },
+        Flight::A => |c| {
+            if record(c, Flight::A).is_some() {
+                pass()
+            } else {
+                action("Import the blackbox log for this flight.")
+            }
+        },
+        Flight::B => |c| {
+            if record(c, Flight::B).is_some() {
+                pass()
+            } else {
+                action("Import the blackbox log for this flight.")
+            }
+        },
+        Flight::C => |c| {
+            if record(c, Flight::C).is_some() {
+                pass()
+            } else {
+                action("Import the blackbox log for this flight.")
+            }
+        },
     }
 }
 
@@ -193,7 +280,10 @@ fn log_rate_guard(r: &FlightRecord) -> GuardOutcome {
             Some("Log at ≥ 2 kHz (blackbox_sample_rate 1/4 at 8 kHz loop)."),
         )
     } else {
-        fail(format!("Log rate is only {:.0} Hz.", r.quality.fs_hz), Some("Log at ≥ 2 kHz."))
+        fail(
+            format!("Log rate is only {:.0} Hz.", r.quality.fs_hz),
+            Some("Log at ≥ 2 kHz."),
+        )
     }
 }
 
@@ -201,7 +291,10 @@ fn duration_guard(r: &FlightRecord, min_s: f64) -> GuardOutcome {
     if r.quality.duration_s >= min_s {
         pass()
     } else {
-        fail(format!("Log is {:.1} s; need ≥ {min_s:.0} s.", r.quality.duration_s), None)
+        fail(
+            format!("Log is {:.1} s; need ≥ {min_s:.0} s.", r.quality.duration_s),
+            None,
+        )
     }
 }
 
@@ -221,7 +314,10 @@ fn hover_guard(r: &FlightRecord) -> GuardOutcome {
         pass()
     } else {
         fail(
-            format!("Only {:.1} s of steady hover (around {:.0} % throttle); need ≥ 20 s.", r.quality.hover_seconds, r.quality.hover_throttle_pct),
+            format!(
+                "Only {:.1} s of steady hover (around {:.0} % throttle); need ≥ 20 s.",
+                r.quality.hover_seconds, r.quality.hover_throttle_pct
+            ),
             Some("Hover steadily for 30 s at a normal hover throttle."),
         )
     }
@@ -231,7 +327,13 @@ fn saturation_guard(r: &FlightRecord) -> GuardOutcome {
     if r.quality.motor_saturation_pct < 5.0 {
         pass()
     } else {
-        fail(format!("Motors saturated {:.1} % of the time; the response is not representative.", r.quality.motor_saturation_pct), Some("Fly with less throttle / lower rates."))
+        fail(
+            format!(
+                "Motors saturated {:.1} % of the time; the response is not representative.",
+                r.quality.motor_saturation_pct
+            ),
+            Some("Fly with less throttle / lower rates."),
+        )
     }
 }
 
@@ -239,12 +341,24 @@ fn saturation_guard(r: &FlightRecord) -> GuardOutcome {
 /// big log gaps) make the log unusable for tuning and point at a hardware
 /// problem the pilot must fix first. Warnings are listed but do not block.
 fn anomaly_guard(r: &FlightRecord) -> GuardOutcome {
-    let crit: Vec<&Anomaly> = r.anomalies.iter().filter(|a| a.severity == Severity::Critical).collect();
+    let crit: Vec<&Anomaly> = r
+        .anomalies
+        .iter()
+        .filter(|a| a.severity == Severity::Critical)
+        .collect();
     if crit.is_empty() {
         return pass();
     }
-    let list: Vec<String> = crit.iter().take(4).map(|a| format!("{} at {:.1} s: {}", a.kind.title(), a.t_start_s, a.detail)).collect();
-    let more = if crit.len() > 4 { format!(" (+{} more)", crit.len() - 4) } else { String::new() };
+    let list: Vec<String> = crit
+        .iter()
+        .take(4)
+        .map(|a| format!("{} at {:.1} s: {}", a.kind.title(), a.t_start_s, a.detail))
+        .collect();
+    let more = if crit.len() > 4 {
+        format!(" (+{} more)", crit.len() - 4)
+    } else {
+        String::new()
+    };
     fail(
         format!("{} critical anomal{} in this log — {}{}", crit.len(), if crit.len() == 1 { "y" } else { "ies" }, list.join(" · "), more),
         Some("Fix the hardware issue (motor/ESC, props, orientation, logging device) and re-fly. Override only if the event is outside the part of the flight you are tuning on."),
@@ -256,7 +370,8 @@ const CHIRP_MIN_WINDOWS: usize = 8;
 const CHIRP_MIN_COHERENCE: f32 = 0.6;
 
 fn chirp_axis_ok(r: &FlightRecord, k: usize) -> bool {
-    r.quality.chirp_windows_per_axis[k] >= CHIRP_MIN_WINDOWS && r.quality.chirp_coherence_per_axis[k] >= CHIRP_MIN_COHERENCE
+    r.quality.chirp_windows_per_axis[k] >= CHIRP_MIN_WINDOWS
+        && r.quality.chirp_coherence_per_axis[k] >= CHIRP_MIN_COHERENCE
 }
 
 /// Betaflight CHIRP sweeps: passes trivially without chirp data; with it, every
@@ -295,7 +410,10 @@ fn steps_guard(r: &FlightRecord) -> GuardOutcome {
         }
         if s[k] < need {
             let why = if ms[k] < 150.0 {
-                format!("{name}: only {} usable segments — stick input too small (max {:.0} °/s)", s[k], ms[k])
+                format!(
+                    "{name}: only {} usable segments — stick input too small (max {:.0} °/s)",
+                    s[k], ms[k]
+                )
             } else if ms[k] > 900.0 && k == 2 {
                 format!("{name}: only {} usable segments — full-rate spins saturate the estimate, use moderate yaw inputs (200–500 °/s)", s[k])
             } else {
@@ -304,7 +422,10 @@ fn steps_guard(r: &FlightRecord) -> GuardOutcome {
             problems.push(why);
         }
     }
-    let reconstructed = r.warnings.iter().any(|w| w.contains("setpoint is not logged"));
+    let reconstructed = r
+        .warnings
+        .iter()
+        .any(|w| w.contains("setpoint is not logged"));
     if problems.is_empty() {
         if reconstructed {
             // usable, but the pilot should log the real setpoint next time
@@ -325,7 +446,9 @@ fn steps_guard(r: &FlightRecord) -> GuardOutcome {
 }
 
 fn tune_matches(c: &GuardCtx, which: Flight, phase: Option<ApplyPhase>) -> GuardOutcome {
-    let Some(r) = record(c, which) else { return action("Import the log first.") };
+    let Some(r) = record(c, which) else {
+        return action("Import the log first.");
+    };
     // Reference tune: what was last applied (if any), else the FC tune, else nothing to check.
     if let Some(p) = phase {
         if let Some(a) = c.session.apply_for(p) {
@@ -336,33 +459,67 @@ fn tune_matches(c: &GuardCtx, which: Flight, phase: Option<ApplyPhase>) -> Guard
                 .filter_map(|rec| {
                     let logged = tune_param(&r.tune, rec.param.name())?;
                     if (logged - rec.new.as_f64()).abs() > 1e-6 {
-                        Some(format!("{} is {} in the log, expected {}", rec.param.name(), logged, rec.new))
+                        Some(format!(
+                            "{} is {} in the log, expected {}",
+                            rec.param.name(),
+                            logged,
+                            rec.new
+                        ))
                     } else {
                         None
                     }
                 })
                 .collect();
             if !mismatches.is_empty() {
-                return fail(format!("Log was not flown with the applied settings: {}", mismatches.join("; ")), Some("Make sure the settings were saved and re-fly."));
+                return fail(
+                    format!(
+                        "Log was not flown with the applied settings: {}",
+                        mismatches.join("; ")
+                    ),
+                    Some("Make sure the settings were saved and re-fly."),
+                );
             }
             return pass();
         }
     }
     if let (Some(Tune::Bf(ft)), Tune::Bf(lt)) = (&c.session.fc_tune, &r.tune) {
         if ft.pids != lt.pids {
-            return fail("PIDs in the log differ from the flight controller's current PIDs.", Some("Re-fly with the current settings."));
+            return fail(
+                "PIDs in the log differ from the flight controller's current PIDs.",
+                Some("Re-fly with the current settings."),
+            );
         }
     }
     if let (Some(Tune::Ap(ft)), Tune::Ap(lt)) = (&c.session.fc_tune, &r.tune) {
-        let diff: Vec<String> = ["ATC_RAT_RLL_P", "ATC_RAT_RLL_I", "ATC_RAT_RLL_D", "ATC_RAT_PIT_P", "ATC_RAT_PIT_I", "ATC_RAT_PIT_D", "ATC_RAT_YAW_P", "ATC_RAT_YAW_I", "ATC_RAT_YAW_D", "INS_GYRO_FILTER", "INS_HNTCH_FREQ"]
-            .iter()
-            .filter_map(|n| match (ft.get(n), lt.get(n)) {
-                (Some(a), Some(b)) if (a - b).abs() > 1e-6 * a.abs().max(1.0) => Some(format!("{n} log {b} vs FC {a}")),
-                _ => None,
-            })
-            .collect();
+        let diff: Vec<String> = [
+            "ATC_RAT_RLL_P",
+            "ATC_RAT_RLL_I",
+            "ATC_RAT_RLL_D",
+            "ATC_RAT_PIT_P",
+            "ATC_RAT_PIT_I",
+            "ATC_RAT_PIT_D",
+            "ATC_RAT_YAW_P",
+            "ATC_RAT_YAW_I",
+            "ATC_RAT_YAW_D",
+            "INS_GYRO_FILTER",
+            "INS_HNTCH_FREQ",
+        ]
+        .iter()
+        .filter_map(|n| match (ft.get(n), lt.get(n)) {
+            (Some(a), Some(b)) if (a - b).abs() > 1e-6 * a.abs().max(1.0) => {
+                Some(format!("{n} log {b} vs FC {a}"))
+            }
+            _ => None,
+        })
+        .collect();
         if !diff.is_empty() {
-            return fail(format!("Log tune differs from the flight controller: {}", diff.join("; ")), Some("Re-fly with the current settings."));
+            return fail(
+                format!(
+                    "Log tune differs from the flight controller: {}",
+                    diff.join("; ")
+                ),
+                Some("Re-fly with the current settings."),
+            );
         }
     }
     pass()
@@ -405,9 +562,27 @@ pub fn tune_param(t: &Tune, name: &str) -> Option<f64> {
 
 fn analysis_done(which: Flight) -> fn(&GuardCtx) -> GuardOutcome {
     match which {
-        Flight::A => |c| if record(c, Flight::A).is_some() { pass() } else { action("Analysis runs automatically after import.") },
-        Flight::B => |c| if record(c, Flight::B).is_some() { pass() } else { action("Analysis runs automatically after import.") },
-        Flight::C => |c| if record(c, Flight::C).is_some() { pass() } else { action("Analysis runs automatically after import.") },
+        Flight::A => |c| {
+            if record(c, Flight::A).is_some() {
+                pass()
+            } else {
+                action("Analysis runs automatically after import.")
+            }
+        },
+        Flight::B => |c| {
+            if record(c, Flight::B).is_some() {
+                pass()
+            } else {
+                action("Analysis runs automatically after import.")
+            }
+        },
+        Flight::C => |c| {
+            if record(c, Flight::C).is_some() {
+                pass()
+            } else {
+                action("Analysis runs automatically after import.")
+            }
+        },
     }
 }
 
@@ -422,11 +597,16 @@ fn applied_impl(c: &GuardCtx, phase: ApplyPhase) -> GuardOutcome {
     let recs = c.session.recs(phase);
     match c.session.apply_for(phase) {
         Some(a) if a.verified => pass(),
-        Some(_) => fail("Settings were written but read-back verification failed.", Some("Reconnect and apply again, or roll back from the snapshot.")),
+        Some(_) => fail(
+            "Settings were written but read-back verification failed.",
+            Some("Reconnect and apply again, or roll back from the snapshot."),
+        ),
         None if recs.iter().all(|r| !r.accepted) => pass(), // explicit skip: nothing accepted
         None => action(match c.session.mode {
             Mode::Online => "Write the accepted settings to the flight controller.",
-            Mode::Offline => "Send the CLI / param file to the pilot and confirm it was applied (save).",
+            Mode::Offline => {
+                "Send the CLI / param file to the pilot and confirm it was applied (save)."
+            }
         }),
     }
 }
@@ -454,7 +634,9 @@ fn ap_bits(mask: u32, wanted: u32) -> bool {
 }
 
 fn ap_log_bitmask(c: &GuardCtx) -> GuardOutcome {
-    let Some(f) = c.fc.filter(|f| f.connected) else { return action("Not connected.") };
+    let Some(f) = c.fc.filter(|f| f.connected) else {
+        return action("Not connected.");
+    };
     match f.log_bitmask {
         Some(m) if ap_bits(m, LOG_BIT_ATTITUDE_FAST | LOG_BIT_PID) => pass(),
         Some(m) => fail(
@@ -466,7 +648,9 @@ fn ap_log_bitmask(c: &GuardCtx) -> GuardOutcome {
 }
 
 fn ap_batch_configured(c: &GuardCtx) -> GuardOutcome {
-    let Some(f) = c.fc.filter(|f| f.connected) else { return action("Not connected.") };
+    let Some(f) = c.fc.filter(|f| f.connected) else {
+        return action("Not connected.");
+    };
     match f.batch_configured {
         Some(true) => pass(),
         Some(false) => fail(
@@ -497,7 +681,13 @@ fn ap_isbh_guard(r: &FlightRecord) -> GuardOutcome {
     } else if r.quality.gyro_hr_batches == 0 {
         fail("No IMU batch-sampler data (ISBH/ISBD) in the log.", Some("LOG_BITMASK bit 19 + INS_LOG_BAT_MASK = 1, INS_LOG_BAT_OPT = 4 (needs reboot), then re-fly."))
     } else {
-        fail(format!("Only {} gyro batches; need ≥ {AP_MIN_GYRO_BATCHES} for an averaged spectrum.", r.quality.gyro_hr_batches), Some("Fly longer (≥ 40 s) or lower INS_LOG_BAT_LGIN."))
+        fail(
+            format!(
+                "Only {} gyro batches; need ≥ {AP_MIN_GYRO_BATCHES} for an averaged spectrum.",
+                r.quality.gyro_hr_batches
+            ),
+            Some("Fly longer (≥ 40 s) or lower INS_LOG_BAT_LGIN."),
+        )
     }
 }
 
@@ -505,7 +695,11 @@ fn ap_steps_guard(r: &FlightRecord) -> GuardOutcome {
     let s = r.quality.step_segments_per_axis;
     let ms = r.quality.max_setpoint_per_axis;
     let mut problems = Vec::new();
-    for (k, name, need, min_sp) in [(0, "roll", 30usize, AP_MIN_SETPOINT_RP_DPS), (1, "pitch", 30, AP_MIN_SETPOINT_RP_DPS), (2, "yaw", 10, AP_MIN_SETPOINT_YAW_DPS)] {
+    for (k, name, need, min_sp) in [
+        (0, "roll", 30usize, AP_MIN_SETPOINT_RP_DPS),
+        (1, "pitch", 30, AP_MIN_SETPOINT_RP_DPS),
+        (2, "yaw", 10, AP_MIN_SETPOINT_YAW_DPS),
+    ] {
         if s[k] < need {
             let why = if ms[k] < min_sp {
                 format!("{name}: only {} usable segments — stick input too small (max {:.0} °/s, need ≥ {min_sp:.0})", s[k], ms[k])
@@ -526,7 +720,13 @@ fn ap_hover_guard(r: &FlightRecord) -> GuardOutcome {
     if r.quality.hover_seconds >= 30.0 {
         pass()
     } else {
-        fail(format!("Only {:.1} s of steady hover (need ≥ 30 s).", r.quality.hover_seconds), Some("Hover in AltHold/Loiter for 30–40 s without stick input."))
+        fail(
+            format!(
+                "Only {:.1} s of steady hover (need ≥ 30 s).",
+                r.quality.hover_seconds
+            ),
+            Some("Hover in AltHold/Loiter for 30–40 s without stick input."),
+        )
     }
 }
 
@@ -558,8 +758,12 @@ fn autotune_result(c: &GuardCtx) -> GuardOutcome {
     if c.session.pid_strategy != PidStrategy::Autotune {
         return pass();
     }
-    let (Some(b), Some(cc)) = (record(c, Flight::B), record(c, Flight::C)) else { return action("Import logs B and C.") };
-    let (Tune::Ap(before), Tune::Ap(after)) = (&b.tune, &cc.tune) else { return pass() };
+    let (Some(b), Some(cc)) = (record(c, Flight::B), record(c, Flight::C)) else {
+        return action("Import logs B and C.");
+    };
+    let (Tune::Ap(before), Tune::Ap(after)) = (&b.tune, &cc.tune) else {
+        return pass();
+    };
     let axes = after.get("AUTOTUNE_AXES").unwrap_or(7.0) as u32;
     let min_d = after.get("AUTOTUNE_MIN_D").unwrap_or(0.001);
     let mut problems = Vec::new();
@@ -572,16 +776,26 @@ fn autotune_result(c: &GuardCtx) -> GuardOutcome {
         let (bp, ap_) = (before.get(&p).unwrap_or(0.0), after.get(&p).unwrap_or(0.0));
         let (bd, ad) = (before.get(&d).unwrap_or(0.0), after.get(&d).unwrap_or(0.0));
         if (bp - ap_).abs() < 1e-6 && (bd - ad).abs() < 1e-6 {
-            problems.push(format!("{ax}: P/D unchanged — AUTOTUNE was not saved for this axis"));
+            problems.push(format!(
+                "{ax}: P/D unchanged — AUTOTUNE was not saved for this axis"
+            ));
         } else if ax != "YAW" && ad <= min_d + 1e-9 {
             problems.push(format!("{ax}: D = {ad} is at AUTOTUNE_MIN_D — the tune failed (lower AUTOTUNE_AGGR, check frame stiffness)"));
         }
     }
-    if problems.is_empty() { pass() } else { fail(problems.join("; "), Some("Re-run AUTOTUNE and land/disarm without touching the sticks to save it, or switch to the heuristic path.")) }
+    if problems.is_empty() {
+        pass()
+    } else {
+        fail(problems.join("; "), Some("Re-run AUTOTUNE and land/disarm without touching the sticks to save it, or switch to the heuristic path."))
+    }
 }
 
 fn report_written(c: &GuardCtx) -> GuardOutcome {
-    if c.session.report_file.is_some() { pass() } else { action("Export the report.") }
+    if c.session.report_file.is_some() {
+        pass()
+    } else {
+        action("Export the report.")
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -591,76 +805,340 @@ fn report_written(c: &GuardCtx) -> GuardOutcome {
 fn defs(step: Step) -> Vec<GuardDef> {
     macro_rules! g {
         ($id:expr, $title:expr, $ov:expr, $f:expr) => {
-            GuardDef { id: $id, title: $title, can_override: $ov, fw: Fw::Any, eval: $f }
+            GuardDef {
+                id: $id,
+                title: $title,
+                can_override: $ov,
+                fw: Fw::Any,
+                eval: $f,
+            }
         };
         ($id:expr, $title:expr, $ov:expr, $fw:expr, $f:expr) => {
-            GuardDef { id: $id, title: $title, can_override: $ov, fw: $fw, eval: $f }
+            GuardDef {
+                id: $id,
+                title: $title,
+                can_override: $ov,
+                fw: $fw,
+                eval: $f,
+            }
         };
     }
     match step {
         Step::Connect => vec![
-            g!("fc_connected", "Flight controller connected", false, fc_connected),
+            g!(
+                "fc_connected",
+                "Flight controller connected",
+                false,
+                fc_connected
+            ),
             g!("fc_supported", "Firmware supported", false, fc_supported),
             g!("fc_tune_read", "Current tune read", false, fc_tune_read),
             g!("backup_taken", "Settings backup saved", false, backup_taken),
         ],
         Step::Preflight => vec![
             g!("fc_disarmed", "Disarmed, props off", false, fc_disarmed),
-            g!("log_rate", "Logging rate ≥ 2 kHz", true, Fw::Bf, log_rate_ok),
-            g!("raw_gyro_logging", "Unfiltered gyro logged", true, Fw::Bf, raw_gyro_logging),
-            g!("ap_log_bitmask", "LOG_BITMASK bits 0 + 12 (loop-rate RATE/PIDx)", true, Fw::Ap, ap_log_bitmask),
-            g!("ap_batch", "IMU batch sampler configured", true, Fw::Ap, ap_batch_configured),
-            g!("storage_free", "≥ 4 MB log storage free", true, storage_free),
+            g!(
+                "log_rate",
+                "Logging rate ≥ 2 kHz",
+                true,
+                Fw::Bf,
+                log_rate_ok
+            ),
+            g!(
+                "raw_gyro_logging",
+                "Unfiltered gyro logged",
+                true,
+                Fw::Bf,
+                raw_gyro_logging
+            ),
+            g!(
+                "ap_log_bitmask",
+                "LOG_BITMASK bits 0 + 12 (loop-rate RATE/PIDx)",
+                true,
+                Fw::Ap,
+                ap_log_bitmask
+            ),
+            g!(
+                "ap_batch",
+                "IMU batch sampler configured",
+                true,
+                Fw::Ap,
+                ap_batch_configured
+            ),
+            g!(
+                "storage_free",
+                "≥ 4 MB log storage free",
+                true,
+                storage_free
+            ),
         ],
-        Step::FlightA => vec![g!("flight_done", "Flight A completed", false, flight_done(Flight::A))],
+        Step::FlightA => vec![g!(
+            "flight_done",
+            "Flight A completed",
+            false,
+            flight_done(Flight::A)
+        )],
         Step::ImportA => vec![
             g!("imported", "Log imported", false, log_imported(Flight::A)),
-            g!("anomalies", "No critical anomalies (desync, spin, reversed control…)", true, |c| record(c, Flight::A).map(anomaly_guard).unwrap_or_else(|| action("Import first."))),
-            g!("log_rate", "Log rate ≥ 2 kHz", true, Fw::Bf, |c| record(c, Flight::A).map(log_rate_guard).unwrap_or_else(|| action("Import first."))),
-            g!("duration", "≥ 40 s of data", true, |c| record(c, Flight::A).map(|r| duration_guard(r, 40.0)).unwrap_or_else(|| action("Import first."))),
-            g!("raw_gyro", "Unfiltered gyro present", true, Fw::Bf, |c| record(c, Flight::A).map(raw_gyro_guard).unwrap_or_else(|| action("Import first."))),
-            g!("ap_isbh", "IMU batch-sampler gyro data present", true, Fw::Ap, |c| record(c, Flight::A).map(ap_isbh_guard).unwrap_or_else(|| action("Import first."))),
-            g!("hover", "≥ 20 s of steady hover", true, Fw::Bf, |c| record(c, Flight::A).map(hover_guard).unwrap_or_else(|| action("Import first."))),
-            g!("ap_hover", "≥ 30 s of steady hover", true, Fw::Ap, |c| record(c, Flight::A).map(ap_hover_guard).unwrap_or_else(|| action("Import first."))),
-            g!("saturation", "Motor saturation < 5 %", true, |c| record(c, Flight::A).map(saturation_guard).unwrap_or_else(|| action("Import first."))),
-            g!("tune_match", "Log matches current tune", true, |c| tune_matches(c, Flight::A, None)),
+            g!(
+                "anomalies",
+                "No critical anomalies (desync, spin, reversed control…)",
+                true,
+                |c| record(c, Flight::A)
+                    .map(anomaly_guard)
+                    .unwrap_or_else(|| action("Import first."))
+            ),
+            g!("log_rate", "Log rate ≥ 2 kHz", true, Fw::Bf, |c| record(
+                c,
+                Flight::A
+            )
+            .map(log_rate_guard)
+            .unwrap_or_else(|| action("Import first."))),
+            g!("duration", "≥ 40 s of data", true, |c| record(
+                c,
+                Flight::A
+            )
+            .map(|r| duration_guard(r, 40.0))
+            .unwrap_or_else(|| action("Import first."))),
+            g!("raw_gyro", "Unfiltered gyro present", true, Fw::Bf, |c| {
+                record(c, Flight::A)
+                    .map(raw_gyro_guard)
+                    .unwrap_or_else(|| action("Import first."))
+            }),
+            g!(
+                "ap_isbh",
+                "IMU batch-sampler gyro data present",
+                true,
+                Fw::Ap,
+                |c| record(c, Flight::A)
+                    .map(ap_isbh_guard)
+                    .unwrap_or_else(|| action("Import first."))
+            ),
+            g!("hover", "≥ 20 s of steady hover", true, Fw::Bf, |c| {
+                record(c, Flight::A)
+                    .map(hover_guard)
+                    .unwrap_or_else(|| action("Import first."))
+            }),
+            g!("ap_hover", "≥ 30 s of steady hover", true, Fw::Ap, |c| {
+                record(c, Flight::A)
+                    .map(ap_hover_guard)
+                    .unwrap_or_else(|| action("Import first."))
+            }),
+            g!("saturation", "Motor saturation < 5 %", true, |c| record(
+                c,
+                Flight::A
+            )
+            .map(saturation_guard)
+            .unwrap_or_else(|| action("Import first."))),
+            g!("tune_match", "Log matches current tune", true, |c| {
+                tune_matches(c, Flight::A, None)
+            }),
         ],
-        Step::FilterAnalysis => vec![g!("analysis", "Spectrum analysis complete", false, analysis_done(Flight::A))],
+        Step::FilterAnalysis => vec![g!(
+            "analysis",
+            "Spectrum analysis complete",
+            false,
+            analysis_done(Flight::A)
+        )],
         Step::ApplyFilters => vec![
-            g!("fc_disarmed", "Disarmed (online) ", true, |c| if c.session.mode == Mode::Offline { pass() } else { fc_disarmed(c) }),
-            g!("applied", "Filter settings applied & verified", false, applied(ApplyPhase::Filters)),
+            g!(
+                "fc_disarmed",
+                "Disarmed (online) ",
+                true,
+                |c| if c.session.mode == Mode::Offline {
+                    pass()
+                } else {
+                    fc_disarmed(c)
+                }
+            ),
+            g!(
+                "applied",
+                "Filter settings applied & verified",
+                false,
+                applied(ApplyPhase::Filters)
+            ),
         ],
-        Step::FlightB => vec![g!("flight_done", "Flight B completed", false, flight_done(Flight::B))],
+        Step::FlightB => vec![g!(
+            "flight_done",
+            "Flight B completed",
+            false,
+            flight_done(Flight::B)
+        )],
         Step::ImportB => vec![
             g!("imported", "Log imported", false, log_imported(Flight::B)),
-            g!("anomalies", "No critical anomalies (desync, spin, reversed control…)", true, |c| record(c, Flight::B).map(anomaly_guard).unwrap_or_else(|| action("Import first."))),
-            g!("log_rate", "Log rate ≥ 1 kHz", true, Fw::Bf, |c| record(c, Flight::B).map(|r| if r.quality.fs_hz >= 950.0 { pass() } else { log_rate_guard(r) }).unwrap_or_else(|| action("Import first."))),
-            g!("ap_pid_rate", "PIDx logged at loop rate", true, Fw::Ap, |c| record(c, Flight::B).map(ap_pid_rate_guard).unwrap_or_else(|| action("Import first."))),
-            g!("duration", "≥ 30 s of data", true, |c| record(c, Flight::B).map(|r| duration_guard(r, 30.0)).unwrap_or_else(|| action("Import first."))),
-            g!("steps", "Enough stick steps per axis", true, Fw::Bf, |c| record(c, Flight::B).map(steps_guard).unwrap_or_else(|| action("Import first."))),
-            g!("chirp_quality", "CHIRP sweeps coherent (≥ 8 windows, γ² ≥ 0.6 per axis)", true, Fw::Bf, |c| record(c, Flight::B).map(chirp_quality_guard).unwrap_or_else(|| action("Import first."))),
-            g!("ap_steps", "Enough stick steps per axis", true, Fw::Ap, |c| record(c, Flight::B).map(ap_steps_guard).unwrap_or_else(|| action("Import first."))),
-            g!("saturation", "Motor saturation < 5 %", true, |c| record(c, Flight::B).map(saturation_guard).unwrap_or_else(|| action("Import first."))),
-            g!("ap_saturation", "Mixer output not saturated", true, Fw::Ap, |c| record(c, Flight::B).map(ap_saturation_guard).unwrap_or_else(|| action("Import first."))),
-            g!("tune_match", "Log flown with the applied filters", true, |c| tune_matches(c, Flight::B, Some(ApplyPhase::Filters))),
+            g!(
+                "anomalies",
+                "No critical anomalies (desync, spin, reversed control…)",
+                true,
+                |c| record(c, Flight::B)
+                    .map(anomaly_guard)
+                    .unwrap_or_else(|| action("Import first."))
+            ),
+            g!("log_rate", "Log rate ≥ 1 kHz", true, Fw::Bf, |c| record(
+                c,
+                Flight::B
+            )
+            .map(|r| if r.quality.fs_hz >= 950.0 {
+                pass()
+            } else {
+                log_rate_guard(r)
+            })
+            .unwrap_or_else(|| action("Import first."))),
+            g!(
+                "ap_pid_rate",
+                "PIDx logged at loop rate",
+                true,
+                Fw::Ap,
+                |c| record(c, Flight::B)
+                    .map(ap_pid_rate_guard)
+                    .unwrap_or_else(|| action("Import first."))
+            ),
+            g!("duration", "≥ 30 s of data", true, |c| record(
+                c,
+                Flight::B
+            )
+            .map(|r| duration_guard(r, 30.0))
+            .unwrap_or_else(|| action("Import first."))),
+            g!("steps", "Enough stick steps per axis", true, Fw::Bf, |c| {
+                record(c, Flight::B)
+                    .map(steps_guard)
+                    .unwrap_or_else(|| action("Import first."))
+            }),
+            g!(
+                "chirp_quality",
+                "CHIRP sweeps coherent (≥ 8 windows, γ² ≥ 0.6 per axis)",
+                true,
+                Fw::Bf,
+                |c| record(c, Flight::B)
+                    .map(chirp_quality_guard)
+                    .unwrap_or_else(|| action("Import first."))
+            ),
+            g!(
+                "ap_steps",
+                "Enough stick steps per axis",
+                true,
+                Fw::Ap,
+                |c| record(c, Flight::B)
+                    .map(ap_steps_guard)
+                    .unwrap_or_else(|| action("Import first."))
+            ),
+            g!("saturation", "Motor saturation < 5 %", true, |c| record(
+                c,
+                Flight::B
+            )
+            .map(saturation_guard)
+            .unwrap_or_else(|| action("Import first."))),
+            g!(
+                "ap_saturation",
+                "Mixer output not saturated",
+                true,
+                Fw::Ap,
+                |c| record(c, Flight::B)
+                    .map(ap_saturation_guard)
+                    .unwrap_or_else(|| action("Import first."))
+            ),
+            g!(
+                "tune_match",
+                "Log flown with the applied filters",
+                true,
+                |c| tune_matches(c, Flight::B, Some(ApplyPhase::Filters))
+            ),
         ],
-        Step::PidAnalysis => vec![g!("analysis", "Step-response analysis complete", false, analysis_done(Flight::B))],
+        Step::PidAnalysis => vec![g!(
+            "analysis",
+            "Step-response analysis complete",
+            false,
+            analysis_done(Flight::B)
+        )],
         Step::ApplyPids => vec![
-            g!("fc_disarmed", "Disarmed (online)", true, |c| if c.session.mode == Mode::Offline { pass() } else { fc_disarmed(c) }),
-            g!("applied", "PID settings applied & verified", false, applied(ApplyPhase::Pids)),
+            g!(
+                "fc_disarmed",
+                "Disarmed (online)",
+                true,
+                |c| if c.session.mode == Mode::Offline {
+                    pass()
+                } else {
+                    fc_disarmed(c)
+                }
+            ),
+            g!(
+                "applied",
+                "PID settings applied & verified",
+                false,
+                applied(ApplyPhase::Pids)
+            ),
         ],
-        Step::FlightC => vec![g!("flight_done", "Verification flight completed", false, flight_done(Flight::C))],
+        Step::FlightC => vec![g!(
+            "flight_done",
+            "Verification flight completed",
+            false,
+            flight_done(Flight::C)
+        )],
         Step::ImportC => vec![
             g!("imported", "Log imported", false, log_imported(Flight::C)),
-            g!("anomalies", "No critical anomalies (desync, spin, reversed control…)", true, |c| record(c, Flight::C).map(anomaly_guard).unwrap_or_else(|| action("Import first."))),
-            g!("ap_pid_rate", "PIDx logged at loop rate", true, Fw::Ap, |c| record(c, Flight::C).map(ap_pid_rate_guard).unwrap_or_else(|| action("Import first."))),
-            g!("steps", "Enough stick steps per axis", true, Fw::Bf, |c| record(c, Flight::C).map(steps_guard).unwrap_or_else(|| action("Import first."))),
-            g!("chirp_quality", "CHIRP sweeps coherent (≥ 8 windows, γ² ≥ 0.6 per axis)", true, Fw::Bf, |c| record(c, Flight::C).map(chirp_quality_guard).unwrap_or_else(|| action("Import first."))),
-            g!("ap_steps", "Enough stick steps per axis", true, Fw::Ap, |c| record(c, Flight::C).map(ap_steps_guard).unwrap_or_else(|| action("Import first."))),
-            g!("tune_match", "Log flown with the applied PIDs", true, |c| tune_matches(c, Flight::C, Some(ApplyPhase::Pids))),
-            g!("autotune_result", "AUTOTUNE changed the rate gains", true, Fw::Ap, autotune_result),
+            g!(
+                "anomalies",
+                "No critical anomalies (desync, spin, reversed control…)",
+                true,
+                |c| record(c, Flight::C)
+                    .map(anomaly_guard)
+                    .unwrap_or_else(|| action("Import first."))
+            ),
+            g!(
+                "ap_pid_rate",
+                "PIDx logged at loop rate",
+                true,
+                Fw::Ap,
+                |c| record(c, Flight::C)
+                    .map(ap_pid_rate_guard)
+                    .unwrap_or_else(|| action("Import first."))
+            ),
+            g!("steps", "Enough stick steps per axis", true, Fw::Bf, |c| {
+                record(c, Flight::C)
+                    .map(steps_guard)
+                    .unwrap_or_else(|| action("Import first."))
+            }),
+            g!(
+                "chirp_quality",
+                "CHIRP sweeps coherent (≥ 8 windows, γ² ≥ 0.6 per axis)",
+                true,
+                Fw::Bf,
+                |c| record(c, Flight::C)
+                    .map(chirp_quality_guard)
+                    .unwrap_or_else(|| action("Import first."))
+            ),
+            g!(
+                "ap_steps",
+                "Enough stick steps per axis",
+                true,
+                Fw::Ap,
+                |c| record(c, Flight::C)
+                    .map(ap_steps_guard)
+                    .unwrap_or_else(|| action("Import first."))
+            ),
+            g!("tune_match", "Log flown with the applied PIDs", true, |c| {
+                tune_matches(c, Flight::C, Some(ApplyPhase::Pids))
+            }),
+            g!(
+                "autotune_result",
+                "AUTOTUNE changed the rate gains",
+                true,
+                Fw::Ap,
+                autotune_result
+            ),
         ],
-        Step::Compare => vec![g!("have_logs", "Before and after logs available", false, |c| if c.session.flights.contains_key(&Flight::B) && c.session.flights.contains_key(&Flight::C) { pass() } else { action("Logs B and C are required.") })],
+        Step::Compare => vec![g!(
+            "have_logs",
+            "Before and after logs available",
+            false,
+            |c| if c.session.flights.contains_key(&Flight::B)
+                && c.session.flights.contains_key(&Flight::C)
+            {
+                pass()
+            } else {
+                action("Logs B and C are required.")
+            }
+        )],
         Step::Report => vec![g!("report", "Report exported", false, report_written)],
     }
 }
@@ -688,5 +1166,7 @@ pub fn evaluate(step: Step, ctx: &GuardCtx) -> Vec<GuardResult> {
 }
 
 pub fn can_override(step: Step, guard_id: &str) -> bool {
-    defs(step).iter().any(|d| d.id == guard_id && d.can_override)
+    defs(step)
+        .iter()
+        .any(|d| d.id == guard_id && d.can_override)
 }

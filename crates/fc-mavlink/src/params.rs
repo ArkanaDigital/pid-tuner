@@ -47,7 +47,10 @@ pub fn name_of(id: &CharArray<16>) -> String {
 }
 
 pub fn is_integer_type(t: MavParamType) -> bool {
-    !matches!(t, MavParamType::MAV_PARAM_TYPE_REAL32 | MavParamType::MAV_PARAM_TYPE_REAL64)
+    !matches!(
+        t,
+        MavParamType::MAV_PARAM_TYPE_REAL32 | MavParamType::MAV_PARAM_TYPE_REAL64
+    )
 }
 
 /// Read-back comparison: integers exact, floats within 1e-6 relative
@@ -63,15 +66,24 @@ pub fn values_match(t: MavParamType, wanted: f32, got: f32) -> bool {
 pub fn to_domain_type(t: MavParamType) -> DomainType {
     match t {
         MavParamType::MAV_PARAM_TYPE_UINT8 | MavParamType::MAV_PARAM_TYPE_INT8 => DomainType::Int8,
-        MavParamType::MAV_PARAM_TYPE_UINT16 | MavParamType::MAV_PARAM_TYPE_INT16 => DomainType::Int16,
-        MavParamType::MAV_PARAM_TYPE_REAL32 | MavParamType::MAV_PARAM_TYPE_REAL64 => DomainType::Real32,
+        MavParamType::MAV_PARAM_TYPE_UINT16 | MavParamType::MAV_PARAM_TYPE_INT16 => {
+            DomainType::Int16
+        }
+        MavParamType::MAV_PARAM_TYPE_REAL32 | MavParamType::MAV_PARAM_TYPE_REAL64 => {
+            DomainType::Real32
+        }
         _ => DomainType::Int32,
     }
 }
 
 impl ParamStore {
     pub fn insert(&mut self, v: &PARAM_VALUE_DATA) -> Param {
-        let p = Param { name: name_of(&v.param_id), value: v.param_value, ptype: v.param_type, index: v.param_index };
+        let p = Param {
+            name: name_of(&v.param_id),
+            value: v.param_value,
+            ptype: v.param_type,
+            index: v.param_index,
+        };
         if v.param_count > 0 {
             self.count = Some(v.param_count);
         }
@@ -96,18 +108,26 @@ impl ParamStore {
 
     /// Indices 0..count not yet received (for `PARAM_REQUEST_READ` retries).
     pub fn missing_indices(&self) -> Vec<u16> {
-        let Some(n) = self.count else { return Vec::new() };
+        let Some(n) = self.count else {
+            return Vec::new();
+        };
         let mut have = vec![false; n as usize];
         for p in self.params.values() {
             if (p.index as usize) < have.len() {
                 have[p.index as usize] = true;
             }
         }
-        have.iter().enumerate().filter(|(_, h)| !**h).map(|(i, _)| i as u16).collect()
+        have.iter()
+            .enumerate()
+            .filter(|(_, h)| !**h)
+            .map(|(i, _)| i as u16)
+            .collect()
     }
 
     pub fn is_complete(&self) -> bool {
-        self.count.map(|n| self.params.len() >= n as usize).unwrap_or(false)
+        self.count
+            .map(|n| self.params.len() >= n as usize)
+            .unwrap_or(false)
     }
 
     pub fn tune(&self) -> ApTune {
@@ -142,7 +162,11 @@ pub fn fmt_value(t: MavParamType, v: f32) -> String {
         format!("{}", v.round() as i64)
     } else {
         let s = format!("{v}");
-        if s.contains('.') || s.contains('e') { s } else { format!("{s}.0") }
+        if s.contains('.') || s.contains('e') {
+            s
+        } else {
+            format!("{s}.0")
+        }
     }
 }
 
@@ -161,10 +185,26 @@ mod tests {
 
     #[test]
     fn integer_types_compare_exact_and_floats_relative() {
-        assert!(values_match(MavParamType::MAV_PARAM_TYPE_INT32, 180222.0, 180222.0));
-        assert!(!values_match(MavParamType::MAV_PARAM_TYPE_INT32, 180222.0, 180223.0));
-        assert!(values_match(MavParamType::MAV_PARAM_TYPE_REAL32, 0.135, 0.13500001));
-        assert!(!values_match(MavParamType::MAV_PARAM_TYPE_REAL32, 0.135, 0.136));
+        assert!(values_match(
+            MavParamType::MAV_PARAM_TYPE_INT32,
+            180222.0,
+            180222.0
+        ));
+        assert!(!values_match(
+            MavParamType::MAV_PARAM_TYPE_INT32,
+            180222.0,
+            180223.0
+        ));
+        assert!(values_match(
+            MavParamType::MAV_PARAM_TYPE_REAL32,
+            0.135,
+            0.135
+        ));
+        assert!(!values_match(
+            MavParamType::MAV_PARAM_TYPE_REAL32,
+            0.135,
+            0.136
+        ));
     }
 
     #[test]
@@ -172,7 +212,13 @@ mod tests {
         let mut s = ParamStore::default();
         for (i, n) in ["A", "B", "D"].iter().enumerate() {
             let idx = if *n == "D" { 3 } else { i as u16 };
-            s.insert(&PARAM_VALUE_DATA { param_value: 1.0, param_count: 5, param_index: idx, param_id: param_id(n), param_type: MavParamType::MAV_PARAM_TYPE_REAL32 });
+            s.insert(&PARAM_VALUE_DATA {
+                param_value: 1.0,
+                param_count: 5,
+                param_index: idx,
+                param_id: param_id(n),
+                param_type: MavParamType::MAV_PARAM_TYPE_REAL32,
+            });
         }
         assert_eq!(s.missing_indices(), vec![2, 4]);
         assert!(!s.is_complete());
@@ -181,9 +227,24 @@ mod tests {
     #[test]
     fn param_text_is_mission_planner_format() {
         let mut s = ParamStore::default();
-        s.insert(&PARAM_VALUE_DATA { param_value: 180222.0, param_count: 2, param_index: 0, param_id: param_id("LOG_BITMASK"), param_type: MavParamType::MAV_PARAM_TYPE_INT32 });
-        s.insert(&PARAM_VALUE_DATA { param_value: 0.135, param_count: 2, param_index: 1, param_id: param_id("ATC_RAT_RLL_P"), param_type: MavParamType::MAV_PARAM_TYPE_REAL32 });
+        s.insert(&PARAM_VALUE_DATA {
+            param_value: 180222.0,
+            param_count: 2,
+            param_index: 0,
+            param_id: param_id("LOG_BITMASK"),
+            param_type: MavParamType::MAV_PARAM_TYPE_INT32,
+        });
+        s.insert(&PARAM_VALUE_DATA {
+            param_value: 0.135,
+            param_count: 2,
+            param_index: 1,
+            param_id: param_id("ATC_RAT_RLL_P"),
+            param_type: MavParamType::MAV_PARAM_TYPE_REAL32,
+        });
         let t = s.to_param_text("PID Tuner backup");
-        assert_eq!(t, "# PID Tuner backup\nATC_RAT_RLL_P,0.135\nLOG_BITMASK,180222\n");
+        assert_eq!(
+            t,
+            "# PID Tuner backup\nATC_RAT_RLL_P,0.135\nLOG_BITMASK,180222\n"
+        );
     }
 }

@@ -23,7 +23,10 @@ impl SerialTransport {
             .timeout(Duration::from_millis(50))
             .open()
             .map_err(std::io::Error::other)?;
-        Ok(Self { port, name: path.to_string() })
+        Ok(Self {
+            port,
+            name: path.to_string(),
+        })
     }
 }
 
@@ -60,17 +63,32 @@ pub fn list_ports() -> Vec<PortInfo> {
     if let Ok(ports) = serialport::available_ports() {
         for p in ports {
             let (vid, pid, product, manufacturer) = match &p.port_type {
-                serialport::SerialPortType::UsbPort(u) => (Some(u.vid), Some(u.pid), u.product.clone(), u.manufacturer.clone()),
+                serialport::SerialPortType::UsbPort(u) => (
+                    Some(u.vid),
+                    Some(u.pid),
+                    u.product.clone(),
+                    u.manufacturer.clone(),
+                ),
                 _ => (None, None, None, None),
             };
             // STM32 VCP 0483:5740, AT32 2E3C:5740, CP210x/CH340 bridges are also common.
             let likely_fc = matches!(vid, Some(0x0483) | Some(0x2E3C))
-                || product.as_deref().map(|s| s.to_ascii_lowercase().contains("betaflight") || s.contains("STM32")).unwrap_or(false);
+                || product
+                    .as_deref()
+                    .map(|s| s.to_ascii_lowercase().contains("betaflight") || s.contains("STM32"))
+                    .unwrap_or(false);
             // macOS lists both /dev/cu.* and /dev/tty.*; keep cu.* (non-blocking open).
             if p.port_name.starts_with("/dev/tty.") {
                 continue;
             }
-            out.push(PortInfo { path: p.port_name, vid, pid, product, manufacturer, likely_fc });
+            out.push(PortInfo {
+                path: p.port_name,
+                vid,
+                pid,
+                product,
+                manufacturer,
+                likely_fc,
+            });
         }
     }
     out.sort_by(|a, b| b.likely_fc.cmp(&a.likely_fc).then(a.path.cmp(&b.path)));
@@ -88,7 +106,13 @@ pub struct MspLink {
 
 impl MspLink {
     pub fn new(transport: Box<dyn Transport>) -> Self {
-        Self { transport, parser: Parser::default(), timeout: Duration::from_millis(600), retries: 3, buf: vec![0; 4096] }
+        Self {
+            transport,
+            parser: Parser::default(),
+            timeout: Duration::from_millis(600),
+            retries: 3,
+            buf: vec![0; 4096],
+        }
     }
 
     /// Send `cmd` and wait for the matching reply payload.
@@ -113,7 +137,11 @@ impl MspLink {
         loop {
             match self.parser.next() {
                 Ok(Some(f)) if f.cmd == cmd => {
-                    return if f.error { Err(MspError::Unsupported(cmd)) } else { Ok(f.payload) };
+                    return if f.error {
+                        Err(MspError::Unsupported(cmd))
+                    } else {
+                        Ok(f.payload)
+                    };
                 }
                 Ok(Some(other)) => {
                     tracing::trace!("ignoring stray {other}");
@@ -140,7 +168,11 @@ impl MspLink {
     }
 
     /// Read raw bytes until `until` returns true or the timeout passes.
-    pub fn read_raw_until(&mut self, timeout: Duration, mut until: impl FnMut(&[u8]) -> bool) -> Result<Vec<u8>, MspError> {
+    pub fn read_raw_until(
+        &mut self,
+        timeout: Duration,
+        mut until: impl FnMut(&[u8]) -> bool,
+    ) -> Result<Vec<u8>, MspError> {
         let mut out = Vec::new();
         let deadline = Instant::now() + timeout;
         loop {
@@ -159,6 +191,11 @@ impl MspLink {
     }
 
     pub fn frame_for_test(cmd: u16, payload: &[u8]) -> Frame {
-        Frame { cmd, payload: payload.to_vec(), error: false, v2: false }
+        Frame {
+            cmd,
+            payload: payload.to_vec(),
+            error: false,
+            v2: false,
+        }
     }
 }

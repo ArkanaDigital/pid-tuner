@@ -33,7 +33,11 @@ pub(crate) fn clamp_u16(v: i32, lo: u16, hi: u16) -> u16 {
 }
 
 fn peak_ev(p: &NoisePeak) -> EvidenceRef {
-    EvidenceRef::Peak { axis: p.axis, f_hz: p.f_hz, psd_db: p.psd_db }
+    EvidenceRef::Peak {
+        axis: p.axis,
+        f_hz: p.f_hz,
+        psd_db: p.psd_db,
+    }
 }
 
 /// Simplified-tuning sliders must be OFF before raw values are written, else the
@@ -45,7 +49,9 @@ fn simplified_off(t: &BfTune, out: &mut Vec<Recommendation>, need_pids: bool, ne
             ParamValue::Enum(t.simplified.pids_mode),
             ParamValue::Enum(0),
             "Simplified PID sliders are ON; they must be OFF so explicit P/I/D/FF values are kept.",
-            vec![EvidenceRef::Text { note: format!("simplified_pids_mode = {}", t.simplified.pids_mode) }],
+            vec![EvidenceRef::Text {
+                note: format!("simplified_pids_mode = {}", t.simplified.pids_mode),
+            }],
             Confidence::High,
         ));
     }
@@ -75,9 +81,21 @@ fn simplified_off(t: &BfTune, out: &mut Vec<Recommendation>, need_pids: bool, ne
 pub fn filters(t: &BfTune, b: &AnalysisBundle) -> Vec<Recommendation> {
     let mut out = Vec::new();
     let f = &t.filters;
-    let raw_peaks: Vec<&NoisePeak> = b.peaks.iter().filter(|p| p.kind == SpectrumKind::GyroRaw).collect();
-    let filt_peaks: Vec<&NoisePeak> = b.peaks.iter().filter(|p| p.kind == SpectrumKind::GyroFilt).collect();
-    let dterm_peaks: Vec<&NoisePeak> = b.peaks.iter().filter(|p| p.kind == SpectrumKind::DTerm).collect();
+    let raw_peaks: Vec<&NoisePeak> = b
+        .peaks
+        .iter()
+        .filter(|p| p.kind == SpectrumKind::GyroRaw)
+        .collect();
+    let filt_peaks: Vec<&NoisePeak> = b
+        .peaks
+        .iter()
+        .filter(|p| p.kind == SpectrumKind::GyroFilt)
+        .collect();
+    let dterm_peaks: Vec<&NoisePeak> = b
+        .peaks
+        .iter()
+        .filter(|p| p.kind == SpectrumKind::DTerm)
+        .collect();
 
     let mut changes: Vec<Recommendation> = Vec::new();
 
@@ -86,7 +104,10 @@ pub fn filters(t: &BfTune, b: &AnalysisBundle) -> Vec<Recommendation> {
         .iter()
         .filter(|p| p.band == NoiseBand::Frame && p.prominence_db >= 10.0)
         .collect();
-    if let Some(p) = frame_surviving.iter().max_by(|a, b| a.prominence_db.partial_cmp(&b.prominence_db).unwrap()) {
+    if let Some(p) = frame_surviving
+        .iter()
+        .max_by(|a, b| a.prominence_db.partial_cmp(&b.prominence_db).unwrap())
+    {
         let ev = vec![peak_ev(p)];
         if f.dyn_notch_count < 3 {
             changes.push(rec(
@@ -116,7 +137,10 @@ pub fn filters(t: &BfTune, b: &AnalysisBundle) -> Vec<Recommendation> {
                 "dyn_notch_max_hz",
                 ParamValue::U16(f.dyn_notch_max_hz),
                 ParamValue::U16(clamp_u16((p.f_hz * 1.2) as i32, 200, 1000)),
-                format!("Resonance at {:.0} Hz is above dyn_notch_max_hz ({}).", p.f_hz, f.dyn_notch_max_hz),
+                format!(
+                    "Resonance at {:.0} Hz is above dyn_notch_max_hz ({}).",
+                    p.f_hz, f.dyn_notch_max_hz
+                ),
                 ev,
                 Confidence::High,
             ));
@@ -128,8 +152,12 @@ pub fn filters(t: &BfTune, b: &AnalysisBundle) -> Vec<Recommendation> {
         .iter()
         .filter(|p| p.band == NoiseBand::Motor && p.prominence_db >= 10.0)
         .collect();
-    if let Some(p) = motor_surviving.iter().max_by(|a, b| a.prominence_db.partial_cmp(&b.prominence_db).unwrap()) {
-        let has_rpm = t.get_raw("dshot_bidir").map(|v| v == "1").unwrap_or(false) && f.rpm_filter_harmonics > 0;
+    if let Some(p) = motor_surviving
+        .iter()
+        .max_by(|a, b| a.prominence_db.partial_cmp(&b.prominence_db).unwrap())
+    {
+        let has_rpm = t.get_raw("dshot_bidir").map(|v| v == "1").unwrap_or(false)
+            && f.rpm_filter_harmonics > 0;
         let ev = vec![peak_ev(p)];
         if !has_rpm {
             changes.push(rec(
@@ -154,9 +182,15 @@ pub fn filters(t: &BfTune, b: &AnalysisBundle) -> Vec<Recommendation> {
     }
 
     // --- D-term noise floor → D-term LPF ---
-    let dterm_noisy = dterm_peaks.iter().any(|p| p.f_hz > 120.0 && p.prominence_db >= 12.0);
+    let dterm_noisy = dterm_peaks
+        .iter()
+        .any(|p| p.f_hz > 120.0 && p.prominence_db >= 12.0);
     if dterm_noisy && f.dterm_lpf1_dyn_max_hz > 120 {
-        let p = dterm_peaks.iter().filter(|p| p.f_hz > 120.0).max_by(|a, b| a.prominence_db.partial_cmp(&b.prominence_db).unwrap()).unwrap();
+        let p = dterm_peaks
+            .iter()
+            .filter(|p| p.f_hz > 120.0)
+            .max_by(|a, b| a.prominence_db.partial_cmp(&b.prominence_db).unwrap())
+            .unwrap();
         changes.push(rec(
             "dterm_lpf1_dyn_max_hz",
             ParamValue::U16(f.dterm_lpf1_dyn_max_hz),
@@ -168,7 +202,9 @@ pub fn filters(t: &BfTune, b: &AnalysisBundle) -> Vec<Recommendation> {
     }
 
     // --- Clean build → relax filtering for less delay ---
-    let clean = raw_peaks.iter().all(|p| p.prominence_db < 10.0 || p.band == NoiseBand::Control)
+    let clean = raw_peaks
+        .iter()
+        .all(|p| p.prominence_db < 10.0 || p.band == NoiseBand::Control)
         && filt_peaks.iter().all(|p| p.prominence_db < 8.0)
         && b.quality.has_gyro_raw;
     if clean && f.dyn_notch_count > 1 {
@@ -199,7 +235,13 @@ pub fn pids(t: &BfTune, b: &AnalysisBundle) -> Vec<Recommendation> {
     let names: Vec<(String, String, String, String, String)> = (0..3)
         .map(|k| {
             let ax = ["roll", "pitch", "yaw"][k];
-            (format!("p_{ax}"), format!("i_{ax}"), t.cli_d_name(k), t.cli_d_max_name(k), format!("f_{ax}"))
+            (
+                format!("p_{ax}"),
+                format!("i_{ax}"),
+                t.cli_d_name(k),
+                t.cli_d_max_name(k),
+                format!("f_{ax}"),
+            )
         })
         .collect();
 
@@ -209,8 +251,18 @@ pub fn pids(t: &BfTune, b: &AnalysisBundle) -> Vec<Recommendation> {
         }
         let k = s.axis.index();
         let pid = t.pids[k];
-        let (pn, in_, dn, dmn, fn_) = (names[k].0.as_str(), names[k].1.as_str(), names[k].2.as_str(), names[k].3.as_str(), names[k].4.as_str());
-        let ev = vec![EvidenceRef::Step { axis: s.axis, overshoot: s.overshoot, latency_ms: s.latency_ms }];
+        let (pn, in_, dn, dmn, fn_) = (
+            names[k].0.as_str(),
+            names[k].1.as_str(),
+            names[k].2.as_str(),
+            names[k].3.as_str(),
+            names[k].4.as_str(),
+        );
+        let ev = vec![EvidenceRef::Step {
+            axis: s.axis,
+            overshoot: s.overshoot,
+            latency_ms: s.latency_ms,
+        }];
         let is_yaw = s.axis == Axis::Yaw;
 
         // Overshoot: too much P relative to D (roll/pitch) — raise D first, lower P if large.
@@ -219,7 +271,11 @@ pub fn pids(t: &BfTune, b: &AnalysisBundle) -> Vec<Recommendation> {
                 dn,
                 ParamValue::U8(pid.d),
                 ParamValue::U8(clamp_u8(pid.d as i32 + 4, 0, 250)),
-                format!("{} overshoots to {:.2} (target ≤ 1.10); more D damps the overshoot.", s.axis.name(), s.overshoot),
+                format!(
+                    "{} overshoots to {:.2} (target ≤ 1.10); more D damps the overshoot.",
+                    s.axis.name(),
+                    s.overshoot
+                ),
                 ev.clone(),
                 Confidence::Medium,
             ));
@@ -236,7 +292,11 @@ pub fn pids(t: &BfTune, b: &AnalysisBundle) -> Vec<Recommendation> {
                     pn,
                     ParamValue::U8(pid.p),
                     ParamValue::U8(clamp_u8(pid.p as i32 - 4, 1, 250)),
-                    format!("{} overshoot {:.2} is large; also reduce P slightly.", s.axis.name(), s.overshoot),
+                    format!(
+                        "{} overshoot {:.2} is large; also reduce P slightly.",
+                        s.axis.name(),
+                        s.overshoot
+                    ),
                     ev.clone(),
                     Confidence::Medium,
                 ));
@@ -246,7 +306,10 @@ pub fn pids(t: &BfTune, b: &AnalysisBundle) -> Vec<Recommendation> {
                 pn,
                 ParamValue::U8(pid.p),
                 ParamValue::U8(clamp_u8(pid.p as i32 - 5, 1, 250)),
-                format!("Yaw overshoots to {:.2}; yaw uses no D, so reduce P.", s.overshoot),
+                format!(
+                    "Yaw overshoots to {:.2}; yaw uses no D, so reduce P.",
+                    s.overshoot
+                ),
                 ev.clone(),
                 Confidence::Medium,
             ));
@@ -280,7 +343,11 @@ pub fn pids(t: &BfTune, b: &AnalysisBundle) -> Vec<Recommendation> {
                 in_,
                 ParamValue::U8(pid.i),
                 ParamValue::U8(clamp_u8(pid.i as i32 + 8, 1, 250)),
-                format!("{} settles at {:.2} instead of 1.0; raise I to remove the steady-state error.", s.axis.name(), s.steady_state),
+                format!(
+                    "{} settles at {:.2} instead of 1.0; raise I to remove the steady-state error.",
+                    s.axis.name(),
+                    s.steady_state
+                ),
                 ev.clone(),
                 Confidence::Medium,
             ));
@@ -306,13 +373,32 @@ mod tests {
 
     fn bundle_with_pitch_overshoot() -> AnalysisBundle {
         let step = |axis: Axis, overshoot: f32| StepResponse {
-            axis, variant: StepVariant::PtStep, t_ms: vec![], mean: vec![], p10: vec![], p90: vec![],
-            n_segments: 50, rejected: 0, overshoot, latency_ms: 14.0, settle_ms: None, steady_state: 1.0,
+            axis,
+            variant: StepVariant::PtStep,
+            t_ms: vec![],
+            mean: vec![],
+            p10: vec![],
+            p90: vec![],
+            n_segments: 50,
+            rejected: 0,
+            overshoot,
+            latency_ms: 14.0,
+            settle_ms: None,
+            steady_state: 1.0,
         };
         AnalysisBundle {
-            log: LogId("x".into()), quality: LogQuality::default(),
-            steps: vec![step(Axis::Roll, 1.05), step(Axis::Pitch, 1.25), step(Axis::Yaw, 1.0)],
-            spectra: vec![], spectrograms: vec![], peaks: vec![], anomalies: vec![], freq_resp: vec![],
+            log: LogId("x".into()),
+            quality: LogQuality::default(),
+            steps: vec![
+                step(Axis::Roll, 1.05),
+                step(Axis::Pitch, 1.25),
+                step(Axis::Yaw, 1.0),
+            ],
+            spectra: vec![],
+            spectrograms: vec![],
+            peaks: vec![],
+            anomalies: vec![],
+            freq_resp: vec![],
         }
     }
 
@@ -320,8 +406,14 @@ mod tests {
     fn legacy_firmware_uses_d_min_names() {
         let mut t = BfTune::default();
         t.simplified.pids_mode = 0;
-        t.raw.insert("Firmware revision".into(), "Betaflight 4.5.5 (norevision) STM32F7X2".into());
-        let names: Vec<String> = pids(&t, &bundle_with_pitch_overshoot()).iter().map(|r| r.param.name().to_string()).collect();
+        t.raw.insert(
+            "Firmware revision".into(),
+            "Betaflight 4.5.5 (norevision) STM32F7X2".into(),
+        );
+        let names: Vec<String> = pids(&t, &bundle_with_pitch_overshoot())
+            .iter()
+            .map(|r| r.param.name().to_string())
+            .collect();
         assert!(names.contains(&"d_min_pitch".to_string()), "{names:?}");
         assert!(names.contains(&"d_pitch".to_string()), "{names:?}");
         assert!(!names.iter().any(|n| n.starts_with("d_max_")));
@@ -331,8 +423,14 @@ mod tests {
     fn new_firmware_uses_d_max_names() {
         let mut t = BfTune::default();
         t.simplified.pids_mode = 0;
-        t.raw.insert("Firmware revision".into(), "Betaflight 2025.12.2 (79065c96b) STM32F7X2".into());
-        let names: Vec<String> = pids(&t, &bundle_with_pitch_overshoot()).iter().map(|r| r.param.name().to_string()).collect();
+        t.raw.insert(
+            "Firmware revision".into(),
+            "Betaflight 2025.12.2 (79065c96b) STM32F7X2".into(),
+        );
+        let names: Vec<String> = pids(&t, &bundle_with_pitch_overshoot())
+            .iter()
+            .map(|r| r.param.name().to_string())
+            .collect();
         assert!(names.contains(&"d_max_pitch".to_string()), "{names:?}");
         assert!(names.contains(&"d_pitch".to_string()), "{names:?}");
         assert!(!names.iter().any(|n| n.starts_with("d_min_")));

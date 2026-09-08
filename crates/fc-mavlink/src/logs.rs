@@ -16,11 +16,16 @@ use domain::fc::{FcError, LogEntry, ProgressFn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-const CHUNK: usize = MAVLINK_LOG_DATA_CHUNK as usize;
+const CHUNK: usize = MAVLINK_LOG_DATA_CHUNK;
 
 pub fn list_logs(c: &mut MavClient) -> Result<Vec<LogEntry>, FcError> {
     let (sys, comp) = c.target();
-    c.send(&MavMessage::LOG_REQUEST_LIST(LOG_REQUEST_LIST_DATA { start: 0, end: u16::MAX, target_system: sys, target_component: comp }))?;
+    c.send(&MavMessage::LOG_REQUEST_LIST(LOG_REQUEST_LIST_DATA {
+        start: 0,
+        end: u16::MAX,
+        target_system: sys,
+        target_component: comp,
+    }))?;
     let mut out = Vec::new();
     let mut idle = Instant::now();
     loop {
@@ -30,7 +35,11 @@ pub fn list_logs(c: &mut MavClient) -> Result<Vec<LogEntry>, FcError> {
                 if e.num_logs == 0 {
                     break;
                 }
-                out.push(LogEntry { id: e.id as u32, size: e.size as u64, time_utc: (e.time_utc != 0).then_some(e.time_utc as u64) });
+                out.push(LogEntry {
+                    id: e.id as u32,
+                    size: e.size as u64,
+                    time_utc: (e.time_utc != 0).then_some(e.time_utc as u64),
+                });
                 if e.id == e.last_log_num {
                     break;
                 }
@@ -38,7 +47,10 @@ pub fn list_logs(c: &mut MavClient) -> Result<Vec<LogEntry>, FcError> {
             _ => {
                 if idle.elapsed() > Duration::from_secs(3) {
                     if out.is_empty() {
-                        return Err(FcError::Timeout("no LOG_ENTRY reply (is LOG_BACKEND_TYPE File and an SD card present?)".into()));
+                        return Err(FcError::Timeout(
+                            "no LOG_ENTRY reply (is LOG_BACKEND_TYPE File and an SD card present?)"
+                                .into(),
+                        ));
                     }
                     break;
                 }
@@ -51,7 +63,13 @@ pub fn list_logs(c: &mut MavClient) -> Result<Vec<LogEntry>, FcError> {
 
 /// Download log `id` (size from the listing) with a chunk bitmap so dropped
 /// packets are re-requested; byte-identical to the file on the SD card.
-pub fn download(c: &mut MavClient, id: u32, size: u64, progress: ProgressFn<'_>, cancel: &AtomicBool) -> Result<Vec<u8>, FcError> {
+pub fn download(
+    c: &mut MavClient,
+    id: u32,
+    size: u64,
+    progress: ProgressFn<'_>,
+    cancel: &AtomicBool,
+) -> Result<Vec<u8>, FcError> {
     let (sys, comp) = c.target();
     let size = size as usize;
     let n_chunks = size.div_ceil(CHUNK).max(1);
@@ -59,14 +77,25 @@ pub fn download(c: &mut MavClient, id: u32, size: u64, progress: ProgressFn<'_>,
     let mut buf = vec![0u8; size];
     let mut got_chunks = 0usize;
     let mut done_short = false;
-    let request = |c: &mut MavClient, ofs: u32, count: u32| c.send(&MavMessage::LOG_REQUEST_DATA(LOG_REQUEST_DATA_DATA { ofs, count, id: id as u16, target_system: sys, target_component: comp }));
+    let request = |c: &mut MavClient, ofs: u32, count: u32| {
+        c.send(&MavMessage::LOG_REQUEST_DATA(LOG_REQUEST_DATA_DATA {
+            ofs,
+            count,
+            id: id as u16,
+            target_system: sys,
+            target_component: comp,
+        }))
+    };
     request(c, 0, u32::MAX)?;
     let mut idle = Instant::now();
     let mut last_progress = Instant::now();
     let mut retries = 0u32;
     while got_chunks < n_chunks {
         if cancel.load(Ordering::Relaxed) {
-            let _ = c.send(&MavMessage::LOG_REQUEST_END(LOG_REQUEST_END_DATA { target_system: sys, target_component: comp }));
+            let _ = c.send(&MavMessage::LOG_REQUEST_END(LOG_REQUEST_END_DATA {
+                target_system: sys,
+                target_component: comp,
+            }));
             return Err(FcError::Other("cancelled".into()));
         }
         match c.pump(Duration::from_millis(100))? {
@@ -74,7 +103,7 @@ pub fn download(c: &mut MavClient, id: u32, size: u64, progress: ProgressFn<'_>,
                 idle = Instant::now();
                 let ofs = d.ofs as usize;
                 let n = d.count as usize;
-                if ofs % CHUNK != 0 || ofs >= size {
+                if !ofs.is_multiple_of(CHUNK) || ofs >= size {
                     continue;
                 }
                 let k = ofs / CHUNK;
@@ -102,7 +131,11 @@ pub fn download(c: &mut MavClient, id: u32, size: u64, progress: ProgressFn<'_>,
                 return Err(FcError::Timeout(format!("log {id}: gave up after {retries} re-requests ({got_chunks}/{n_chunks} chunks)")));
             }
             let first = have.iter().position(|h| !h).unwrap();
-            let run_end = have[first..].iter().position(|h| *h).map(|p| first + p).unwrap_or(n_chunks);
+            let run_end = have[first..]
+                .iter()
+                .position(|h| *h)
+                .map(|p| first + p)
+                .unwrap_or(n_chunks);
             let ofs = (first * CHUNK) as u32;
             let count = ((run_end - first) * CHUNK) as u32;
             request(c, ofs, count)?;
@@ -111,6 +144,9 @@ pub fn download(c: &mut MavClient, id: u32, size: u64, progress: ProgressFn<'_>,
         }
     }
     progress(size as u64, size as u64);
-    c.send(&MavMessage::LOG_REQUEST_END(LOG_REQUEST_END_DATA { target_system: sys, target_component: comp }))?;
+    c.send(&MavMessage::LOG_REQUEST_END(LOG_REQUEST_END_DATA {
+        target_system: sys,
+        target_component: comp,
+    }))?;
     Ok(buf)
 }

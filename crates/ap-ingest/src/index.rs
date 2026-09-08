@@ -29,9 +29,24 @@ pub struct Index<'a> {
 
 impl<'a> Index<'a> {
     pub fn scan(bytes: &'a [u8]) -> Self {
-        let mut ix = Index { bytes, defs: vec![None; 256], by_name: HashMap::new(), offsets: HashMap::new(), stats: ScanStats::default(), params: Vec::new(), messages: Vec::new() };
+        let mut ix = Index {
+            bytes,
+            defs: vec![None; 256],
+            by_name: HashMap::new(),
+            offsets: HashMap::new(),
+            stats: ScanStats::default(),
+            params: Vec::new(),
+            messages: Vec::new(),
+        };
         // Bootstrap FMT so the first FMT message can be decoded.
-        let fmt = FmtDef::new(FMT_MSG_ID, 89, "FMT", "BBnNZ", "Type,Length,Name,Format,Columns").unwrap();
+        let fmt = FmtDef::new(
+            FMT_MSG_ID,
+            89,
+            "FMT",
+            "BBnNZ",
+            "Type,Length,Name,Format,Columns",
+        )
+        .unwrap();
         ix.by_name.insert("FMT".into(), FMT_MSG_ID);
         ix.defs[FMT_MSG_ID as usize] = Some(fmt);
 
@@ -41,7 +56,11 @@ impl<'a> Index<'a> {
         while pos + 3 <= n {
             let ok_header = bytes[pos] == HEAD_BYTE1 && bytes[pos + 1] == HEAD_BYTE2;
             let id = bytes[pos + 2];
-            let def_len = if ok_header { ix.defs[id as usize].as_ref().map(|d| d.len as usize) } else { None };
+            let def_len = if ok_header {
+                ix.defs[id as usize].as_ref().map(|d| d.len as usize)
+            } else {
+                None
+            };
             let Some(len) = def_len else {
                 if skip_start.is_none() {
                     skip_start = Some(pos);
@@ -51,7 +70,9 @@ impl<'a> Index<'a> {
             };
             if pos + len > n {
                 // truncated trailing message: drop it
-                ix.stats.warnings.push(format!("truncated trailing message id {id} at {pos}"));
+                ix.stats
+                    .warnings
+                    .push(format!("truncated trailing message id {id} at {pos}"));
                 break;
             }
             if let Some(s) = skip_start.take() {
@@ -85,20 +106,27 @@ impl<'a> Index<'a> {
         match FmtDef::new(id, len, &name, &format, &columns) {
             Ok(d) => {
                 if d.columns_padded {
-                    self.stats.warnings.push(format!("FMT {name} (id {id}): column names inconsistent with format, padded"));
+                    self.stats.warnings.push(format!(
+                        "FMT {name} (id {id}): column names inconsistent with format, padded"
+                    ));
                 }
                 if id != FMT_MSG_ID {
                     self.by_name.insert(d.name.clone(), id);
                     self.defs[id as usize] = Some(d);
                 }
             }
-            Err(e) => self.stats.warnings.push(format!("FMT {name} (id {id}) ignored: {e}")),
+            Err(e) => self
+                .stats
+                .warnings
+                .push(format!("FMT {name} (id {id}) ignored: {e}")),
         }
     }
 
     /// Small messages we always decode during the scan.
     fn eager(&mut self, id: u8, p: &[u8]) {
-        let Some(def) = self.defs[id as usize].as_ref() else { return };
+        let Some(def) = self.defs[id as usize].as_ref() else {
+            return;
+        };
         match def.name.as_str() {
             "FMTU" => {
                 // QBNN: TimeUS, FmtType, UnitIds, MultIds
@@ -122,7 +150,8 @@ impl<'a> Index<'a> {
             }
             "MSG" => {
                 if let Some(ci) = def.col("Message") {
-                    self.messages.push(cstr(&p[def.offsets[ci]..def.offsets[ci] + 64]));
+                    self.messages
+                        .push(cstr(&p[def.offsets[ci]..def.offsets[ci] + 64]));
                 }
             }
             _ => {}
@@ -130,7 +159,9 @@ impl<'a> Index<'a> {
     }
 
     pub fn def(&self, name: &str) -> Option<&FmtDef> {
-        self.by_name.get(name).and_then(|id| self.defs[*id as usize].as_ref())
+        self.by_name
+            .get(name)
+            .and_then(|id| self.defs[*id as usize].as_ref())
     }
 
     pub fn def_by_id(&self, id: u8) -> Option<&FmtDef> {
@@ -142,14 +173,26 @@ impl<'a> Index<'a> {
     }
 
     pub fn count(&self, name: &str) -> usize {
-        self.by_name.get(name).and_then(|id| self.offsets.get(id)).map(|v| v.len()).unwrap_or(0)
+        self.by_name
+            .get(name)
+            .and_then(|id| self.offsets.get(id))
+            .map(|v| v.len())
+            .unwrap_or(0)
     }
 
     pub fn offsets(&self, name: &str) -> &[usize] {
-        self.by_name.get(name).and_then(|id| self.offsets.get(id)).map(|v| v.as_slice()).unwrap_or(&[])
+        self.by_name
+            .get(name)
+            .and_then(|id| self.offsets.get(id))
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     pub fn param(&self, name: &str) -> Option<f32> {
-        self.params.iter().rev().find(|(n, _)| n == name).map(|(_, v)| *v)
+        self.params
+            .iter()
+            .rev()
+            .find(|(n, _)| n == name)
+            .map(|(_, v)| *v)
     }
 }

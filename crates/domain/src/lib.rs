@@ -150,7 +150,14 @@ pub struct ChirpConfig {
 
 impl Default for ChirpConfig {
     fn default() -> Self {
-        Self { lag_freq_hz: 3.0, lead_freq_hz: 30.0, amplitude: [230, 230, 180], f_start_hz: 0.2, f_end_hz: 600.0, time_s: 20.0 }
+        Self {
+            lag_freq_hz: 3.0,
+            lead_freq_hz: 30.0,
+            amplitude: [230, 230, 180],
+            f_start_hz: 0.2,
+            f_end_hz: 600.0,
+            time_s: 20.0,
+        }
     }
 }
 
@@ -560,11 +567,29 @@ pub enum Confidence {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum EvidenceRef {
-    Peak { axis: Axis, f_hz: f32, psd_db: f32 },
-    Step { axis: Axis, overshoot: f32, latency_ms: f32 },
-    Quality { field: String, value: f64 },
-    Text { note: String },
-    FreqResp { axis: Axis, bandwidth_hz: f32, phase_margin_deg: f32, coherence: f32 },
+    Peak {
+        axis: Axis,
+        f_hz: f32,
+        psd_db: f32,
+    },
+    Step {
+        axis: Axis,
+        overshoot: f32,
+        latency_ms: f32,
+    },
+    Quality {
+        field: String,
+        value: f64,
+    },
+    Text {
+        note: String,
+    },
+    FreqResp {
+        axis: Axis,
+        bandwidth_hz: f32,
+        phase_margin_deg: f32,
+        coherence: f32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -584,7 +609,11 @@ pub struct Recommendation {
 pub mod nan_f32 {
     use serde::{Deserialize, Deserializer, Serializer};
     pub fn serialize<S: Serializer>(v: &f32, s: S) -> Result<S::Ok, S::Error> {
-        if v.is_finite() { s.serialize_f32(*v) } else { s.serialize_none() }
+        if v.is_finite() {
+            s.serialize_f32(*v)
+        } else {
+            s.serialize_none()
+        }
     }
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
         Ok(Option::<f32>::deserialize(d)?.unwrap_or(f32::NAN))
@@ -599,6 +628,9 @@ pub mod nan_vec_f32 {
         opt.serialize(s)
     }
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<f32>, D::Error> {
-        Ok(Vec::<Option<f32>>::deserialize(d)?.into_iter().map(|o| o.unwrap_or(f32::NAN)).collect())
+        Ok(Vec::<Option<f32>>::deserialize(d)?
+            .into_iter()
+            .map(|o| o.unwrap_or(f32::NAN))
+            .collect())
     }
 }

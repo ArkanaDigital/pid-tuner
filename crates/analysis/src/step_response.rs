@@ -65,7 +65,10 @@ impl StepOpts {
     /// 0.15 s, `AC_AttitudeControl.cpp`) so setpoint amplitudes are lower and
     /// smoother than Betaflight acro; accept smaller inputs.
     pub fn ardupilot() -> Self {
-        Self { min_input_dps: 10.0, ..Default::default() }
+        Self {
+            min_input_dps: 10.0,
+            ..Default::default()
+        }
     }
 
     pub fn pid_analyzer() -> Self {
@@ -91,7 +94,9 @@ fn settling_extrema(y: &[f32]) -> Option<(f32, f32)> {
     }
     let rise_end = y.iter().position(|v| *v >= 0.9 * yfinal)?;
     let tail = &y[rise_end..];
-    let (mn, mx) = tail.iter().fold((f32::MAX, f32::MIN), |(a, b), v| (a.min(*v), b.max(*v)));
+    let (mn, mx) = tail
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(a, b), v| (a.min(*v), b.max(*v)));
     Some((mn, mx))
 }
 
@@ -143,7 +148,11 @@ pub fn step_response(log: &FlightLog, axis: Axis, opts: &StepOpts) -> StepRespon
             None => (u.to_vec(), y.to_vec()),
         };
         let imp = impulse_response(&uw, &yw, log.fs_hz, pad, reg);
-        let imp = if smooth_w > 1 { moving_average(&imp, smooth_w) } else { imp };
+        let imp = if smooth_w > 1 {
+            moving_average(&imp, smooth_w)
+        } else {
+            imp
+        };
         let mut step = cumsum(&imp[..(wnd + 1).min(imp.len())]);
         let first = step[0];
         for v in step.iter_mut() {
@@ -222,7 +231,12 @@ pub struct StepMetrics {
 pub fn metrics(mean: &[f32], fs: f32) -> StepMetrics {
     let n = mean.len();
     if n == 0 {
-        return StepMetrics { overshoot: 0.0, latency_ms: 0.0, settle_ms: None, steady_state: 0.0 };
+        return StepMetrics {
+            overshoot: 0.0,
+            latency_ms: 0.0,
+            settle_ms: None,
+            steady_state: 0.0,
+        };
     }
     let i150 = ((0.15 * fs) as usize).min(n);
     let overshoot = mean[..i150.max(1)].iter().cloned().fold(f32::MIN, f32::max);
@@ -244,7 +258,12 @@ pub fn metrics(mean: &[f32], fs: f32) -> StepMetrics {
     } else {
         None
     };
-    StepMetrics { overshoot, latency_ms, settle_ms, steady_state }
+    StepMetrics {
+        overshoot,
+        latency_ms,
+        settle_ms,
+        steady_state,
+    }
 }
 
 #[cfg(test)]
@@ -254,7 +273,9 @@ mod tests {
     use domain::*;
 
     fn lcg(seed: &mut u64) -> f32 {
-        *seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         ((*seed >> 33) as f32 / (1u64 << 31) as f32) * 2.0 - 1.0
     }
 
@@ -297,7 +318,9 @@ mod tests {
         axes[0].gyro_filt = y;
         FlightLog {
             id: LogId("test".into()),
-            firmware: Firmware::Unknown { product: "synthetic".into() },
+            firmware: Firmware::Unknown {
+                product: "synthetic".into(),
+            },
             fs_hz: fs as f64,
             t,
             axes,
@@ -318,21 +341,39 @@ mod tests {
     fn recovers_second_order_overshoot() {
         let log = synthetic_log(2000.0, 30.0, 0.0);
         let r = step_response(&log, Axis::Roll, &StepOpts::default());
-        assert!(r.n_segments > 20, "segments {} rejected {}", r.n_segments, r.rejected);
+        assert!(
+            r.n_segments > 20,
+            "segments {} rejected {}",
+            r.n_segments,
+            r.rejected
+        );
         // analytic: overshoot exp(-πζ/√(1-ζ²)) = 0.163 (10 ms smoothing shaves a little)
         assert_relative_eq!(r.overshoot, 1.163, epsilon = 0.05);
         assert_relative_eq!(r.steady_state, 1.0, epsilon = 0.04);
         // analytic 50 % crossing for ζ=0.5, ωn=75.4 rad/s ≈ 15 ms
-        assert!(r.latency_ms > 10.0 && r.latency_ms < 24.0, "latency {}", r.latency_ms);
+        assert!(
+            r.latency_ms > 10.0 && r.latency_ms < 24.0,
+            "latency {}",
+            r.latency_ms
+        );
     }
 
     #[test]
     fn robust_to_gyro_noise() {
         let log = synthetic_log(2000.0, 40.0, 15.0);
         let r = step_response(&log, Axis::Roll, &StepOpts::default());
-        assert!(r.n_segments > 10, "segments {} rejected {}", r.n_segments, r.rejected);
+        assert!(
+            r.n_segments > 10,
+            "segments {} rejected {}",
+            r.n_segments,
+            r.rejected
+        );
         assert_relative_eq!(r.steady_state, 1.0, epsilon = 0.08);
-        assert!(r.overshoot > 1.05 && r.overshoot < 1.3, "overshoot {}", r.overshoot);
+        assert!(
+            r.overshoot > 1.05 && r.overshoot < 1.3,
+            "overshoot {}",
+            r.overshoot
+        );
     }
 
     #[test]

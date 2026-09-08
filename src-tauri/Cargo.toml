@@ -12,6 +12,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[lints]
+workspace = true
+
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
@@ -26,6 +29,14 @@ recommend = { workspace = true }
 session = { workspace = true }
 fc-msp = { workspace = true }
 fc-mavlink = { workspace = true }
+appconfig = { workspace = true }
+llm = { workspace = true }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "http2", "charset"] }
+async-trait = "0.1"
 uuid = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 dsp = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

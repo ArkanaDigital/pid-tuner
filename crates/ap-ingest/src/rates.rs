@@ -2,7 +2,11 @@
 
 /// Median sample period → rate in Hz. Requires ≥ 8 samples with positive deltas.
 pub fn measure_rate_hz(time_us: &[u64]) -> Option<f64> {
-    let mut d: Vec<u64> = time_us.windows(2).filter(|w| w[1] > w[0]).map(|w| w[1] - w[0]).collect();
+    let mut d: Vec<u64> = time_us
+        .windows(2)
+        .filter(|w| w[1] > w[0])
+        .map(|w| w[1] - w[0])
+        .collect();
     if d.len() < 8 {
         return None;
     }
@@ -19,7 +23,8 @@ pub fn plausible_mask(time_us: &[u64], t0: u64, max_span_us: u64, back_us: u64) 
     time_us
         .iter()
         .map(|&t| {
-            let ok = t >= t0.saturating_sub(back_us) && t <= t0 + max_span_us && t + back_us >= last;
+            let ok =
+                t >= t0.saturating_sub(back_us) && t <= t0 + max_span_us && t + back_us >= last;
             if ok {
                 last = t;
             }

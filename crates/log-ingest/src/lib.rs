@@ -32,7 +32,10 @@ pub enum IngestError {
 
 pub fn detect(bytes: &[u8]) -> LogFormat {
     let head = &bytes[..bytes.len().min(64 * 1024)];
-    if head.windows(bbl_ingest::headers::MARKER.len()).any(|w| w == bbl_ingest::headers::MARKER) {
+    if head
+        .windows(bbl_ingest::headers::MARKER.len())
+        .any(|w| w == bbl_ingest::headers::MARKER)
+    {
         LogFormat::Betaflight
     } else if ap_ingest::looks_like_dataflash(bytes) {
         LogFormat::ArduPilot
@@ -45,13 +48,31 @@ pub fn list_sessions(bytes: &[u8]) -> Vec<SessionInfo> {
     match detect(bytes) {
         LogFormat::Betaflight => bbl_ingest::list_sessions(bytes)
             .into_iter()
-            .map(|s| SessionInfo { index: s.index, format: LogFormat::Betaflight, firmware_revision: s.firmware_revision, craft_name: s.craft_name, error: s.error })
+            .map(|s| SessionInfo {
+                index: s.index,
+                format: LogFormat::Betaflight,
+                firmware_revision: s.firmware_revision,
+                craft_name: s.craft_name,
+                error: s.error,
+            })
             .collect(),
         LogFormat::ArduPilot => ap_ingest::list_sessions(bytes)
             .into_iter()
-            .map(|s| SessionInfo { index: s.index, format: LogFormat::ArduPilot, firmware_revision: s.firmware_revision, craft_name: s.craft_name, error: s.error })
+            .map(|s| SessionInfo {
+                index: s.index,
+                format: LogFormat::ArduPilot,
+                firmware_revision: s.firmware_revision,
+                craft_name: s.craft_name,
+                error: s.error,
+            })
             .collect(),
-        LogFormat::Unknown => vec![SessionInfo { index: 0, format: LogFormat::Unknown, firmware_revision: String::new(), craft_name: None, error: Some(IngestError::Unknown.to_string()) }],
+        LogFormat::Unknown => vec![SessionInfo {
+            index: 0,
+            format: LogFormat::Unknown,
+            firmware_revision: String::new(),
+            craft_name: None,
+            error: Some(IngestError::Unknown.to_string()),
+        }],
     }
 }
 
@@ -69,7 +90,12 @@ mod tests {
 
     #[test]
     fn detects_by_magic() {
-        assert_eq!(detect(b"H Product:Blackbox flight data recorder by Nicholas Sherlock\nH Data version:2\n"), LogFormat::Betaflight);
+        assert_eq!(
+            detect(
+                b"H Product:Blackbox flight data recorder by Nicholas Sherlock\nH Data version:2\n"
+            ),
+            LogFormat::Betaflight
+        );
         let mut ap = vec![0xA3u8, 0x95, 128, 128, 89];
         ap.extend_from_slice(b"FMT\0");
         ap.extend_from_slice(&[0u8; 100]);

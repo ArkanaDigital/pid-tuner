@@ -46,6 +46,7 @@ export default function Home() {
         <h1>PID Tuner</h1>
         <span className="spacer" />
         <button onClick={() => s.set({ view: "quick" })}>Quick look at a log</button>
+        <button onClick={() => s.set({ prevView: "home", view: "settings" })}>⚙ Settings</button>
         {s.busy && <span className="busy">{s.busy}</span>}
         {s.error && <span className="error">{s.error}</span>}
       </header>

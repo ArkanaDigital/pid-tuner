@@ -35,13 +35,22 @@ pub struct AnalysisOpts {
 }
 
 /// Run the whole pipeline. Progress is reported as a fraction in `0..=1`.
-pub fn analyze(log: &FlightLog, opts: &AnalysisOpts, progress: impl Fn(f32) + Sync) -> AnalysisBundle {
+pub fn analyze(
+    log: &FlightLog,
+    opts: &AnalysisOpts,
+    progress: impl Fn(f32) + Sync,
+) -> AnalysisBundle {
     progress(0.0);
     // Spectra/spectrograms default to the airborne part of the log so arming
     // spin-up and touchdown do not produce phantom peaks.
     let range = opts.range_s.or_else(|| quality::airborne_range(log));
-    let mut opts = AnalysisOpts { range_s: range, ..opts.clone() };
-    if matches!(log.firmware, domain::Firmware::ArduCopter { .. }) && opts.step.min_input_dps == StepOpts::default().min_input_dps {
+    let mut opts = AnalysisOpts {
+        range_s: range,
+        ..opts.clone()
+    };
+    if matches!(log.firmware, domain::Firmware::ArduCopter { .. })
+        && opts.step.min_input_dps == StepOpts::default().min_input_dps
+    {
         opts.step = StepOpts::ardupilot();
     }
     let opts = &opts;
@@ -51,7 +60,11 @@ pub fn analyze(log: &FlightLog, opts: &AnalysisOpts, progress: impl Fn(f32) + Sy
         .collect();
     progress(0.35);
 
-    let kinds = [SpectrumKind::GyroRaw, SpectrumKind::GyroFilt, SpectrumKind::DTerm];
+    let kinds = [
+        SpectrumKind::GyroRaw,
+        SpectrumKind::GyroFilt,
+        SpectrumKind::DTerm,
+    ];
     let jobs: Vec<(Axis, SpectrumKind)> = Axis::ALL
         .iter()
         .flat_map(|a| kinds.iter().map(move |k| (*a, *k)))
@@ -70,11 +83,17 @@ pub fn analyze(log: &FlightLog, opts: &AnalysisOpts, progress: impl Fn(f32) + Sy
         .collect();
     // ArduPilot: predicted post-filter spectrum from the logged filter parameters.
     if let domain::Tune::Ap(t) = &log.tune_at_log {
-        let hover = log.meta.headers.get("ap.hover_thr").and_then(|v| v.parse::<f32>().ok());
+        let hover = log
+            .meta
+            .headers
+            .get("ap.hover_thr")
+            .and_then(|v| v.parse::<f32>().ok());
         let preds: Vec<_> = spectra
             .iter()
             .filter(|s| s.kind == SpectrumKind::GyroRaw)
-            .map(|pre| predicted::predict(pre, &predicted::chain_from_params(t, pre.fs_hz, hover, &[])))
+            .map(|pre| {
+                predicted::predict(pre, &predicted::chain_from_params(t, pre.fs_hz, hover, &[]))
+            })
             .collect();
         spectra.extend(preds);
     }
@@ -83,7 +102,9 @@ pub fn analyze(log: &FlightLog, opts: &AnalysisOpts, progress: impl Fn(f32) + Sy
     let spectrograms: Vec<_> = Axis::ALL
         .par_iter()
         .filter_map(|&a| {
-            if let Some(track) = hr::track_for(log, SpectrumKind::GyroRaw).or_else(|| hr::track_for(log, SpectrumKind::GyroFilt)) {
+            if let Some(track) = hr::track_for(log, SpectrumKind::GyroRaw)
+                .or_else(|| hr::track_for(log, SpectrumKind::GyroFilt))
+            {
                 return hr::spectrogram_hr(log, track, a, opts.spectrogram.max_hz);
             }
             let kind = if log.axis(a).gyro_raw.is_some() {
@@ -110,8 +131,16 @@ pub fn analyze(log: &FlightLog, opts: &AnalysisOpts, progress: impl Fn(f32) + Sy
 
     let anomalies = anomaly::detect(log, quality.airborne_range_s, &opts.anomaly);
     // Betaflight CHIRP sweeps → closed-loop frequency response per axis
-    let freq_resp: Vec<domain::FrequencyResponse> = if log.chirp.as_ref().map(|c| !c.segments.is_empty()).unwrap_or(false) {
-        Axis::ALL.par_iter().filter_map(|&a| chirp::frequency_response(log, a, &opts.chirp)).collect()
+    let freq_resp: Vec<domain::FrequencyResponse> = if log
+        .chirp
+        .as_ref()
+        .map(|c| !c.segments.is_empty())
+        .unwrap_or(false)
+    {
+        Axis::ALL
+            .par_iter()
+            .filter_map(|&a| chirp::frequency_response(log, a, &opts.chirp))
+            .collect()
     } else {
         Vec::new()
     };
@@ -119,7 +148,11 @@ pub fn analyze(log: &FlightLog, opts: &AnalysisOpts, progress: impl Fn(f32) + Sy
         let k = fr.axis.index();
         quality.chirp_sweeps_per_axis[k] = fr.n_sweeps;
         quality.chirp_windows_per_axis[k] = fr.n_windows;
-        quality.chirp_coherence_per_axis[k] = if fr.metrics.coherence_mean.is_finite() { fr.metrics.coherence_mean } else { 0.0 };
+        quality.chirp_coherence_per_axis[k] = if fr.metrics.coherence_mean.is_finite() {
+            fr.metrics.coherence_mean
+        } else {
+            0.0
+        };
     }
     AnalysisBundle {
         log: log.id.clone(),

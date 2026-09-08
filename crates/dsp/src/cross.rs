@@ -24,7 +24,11 @@ pub struct CsdOpts {
 
 impl Default for CsdOpts {
     fn default() -> Self {
-        Self { nfft: 1024, overlap: 0.5, detrend: true }
+        Self {
+            nfft: 1024,
+            overlap: 0.5,
+            detrend: true,
+        }
     }
 }
 
@@ -54,7 +58,9 @@ impl CrossSpectrum {
     pub fn empty(nfft: usize, fs: f64) -> Self {
         let nb = nfft / 2 + 1;
         Self {
-            f_hz: (0..nb).map(|k| (k as f64 * fs / nfft as f64) as f32).collect(),
+            f_hz: (0..nb)
+                .map(|k| (k as f64 * fs / nfft as f64) as f32)
+                .collect(),
             sxx: vec![0.0; nb],
             syy: vec![0.0; nb],
             sxy: vec![Complex64::default(); nb],
@@ -80,7 +86,13 @@ impl CrossSpectrum {
         self.sxx
             .iter()
             .zip(&self.sxy)
-            .map(|(&sxx, sxy)| if sxx < 1e-20 { Complex32::new(f32::NAN, f32::NAN) } else { Complex32::new((sxy.re / sxx) as f32, (sxy.im / sxx) as f32) })
+            .map(|(&sxx, sxy)| {
+                if sxx < 1e-20 {
+                    Complex32::new(f32::NAN, f32::NAN)
+                } else {
+                    Complex32::new((sxy.re / sxx) as f32, (sxy.im / sxx) as f32)
+                }
+            })
             .collect()
     }
 
@@ -89,7 +101,11 @@ impl CrossSpectrum {
         (0..self.sxx.len())
             .map(|k| {
                 let d = self.sxx[k] * self.syy[k];
-                if d > 1e-30 { (self.sxy[k].norm_sqr() / d).clamp(0.0, 1.0) as f32 } else { 0.0 }
+                if d > 1e-30 {
+                    (self.sxy[k].norm_sqr() / d).clamp(0.0, 1.0) as f32
+                } else {
+                    0.0
+                }
             })
             .collect()
     }
@@ -113,7 +129,10 @@ pub fn cross_welch(u: &[f32], y: &[f32], fs: f64, o: CsdOpts) -> CrossSpectrum {
         let su = &u[start..start + nfft];
         let sy = &y[start..start + nfft];
         let (mu, my) = if o.detrend {
-            (su.iter().sum::<f32>() / nfft as f32, sy.iter().sum::<f32>() / nfft as f32)
+            (
+                su.iter().sum::<f32>() / nfft as f32,
+                sy.iter().sum::<f32>() / nfft as f32,
+            )
         } else {
             (0.0, 0.0)
         };
@@ -128,7 +147,10 @@ pub fn cross_welch(u: &[f32], y: &[f32], fs: f64, o: CsdOpts) -> CrossSpectrum {
             out.sxx[k] += a.norm_sqr() as f64;
             out.syy[k] += b.norm_sqr() as f64;
             // conj(U)·Y
-            let c = Complex64::new((a.re * b.re + a.im * b.im) as f64, (a.re * b.im - a.im * b.re) as f64);
+            let c = Complex64::new(
+                (a.re * b.re + a.im * b.im) as f64,
+                (a.re * b.im - a.im * b.re) as f64,
+            );
             out.sxy[k] += c;
         }
         out.n_windows += 1;
@@ -170,14 +192,20 @@ pub fn open_loop(h: &[Complex32]) -> Vec<Complex32> {
                 return Complex32::new(f32::NAN, f32::NAN);
             }
             let d = Complex32::new(1.0 - h.re, -h.im);
-            if d.norm_sqr() < 1e-20 { Complex32::new(f32::INFINITY, 0.0) } else { h / d }
+            if d.norm_sqr() < 1e-20 {
+                Complex32::new(f32::INFINITY, 0.0)
+            } else {
+                h / d
+            }
         })
         .collect()
 }
 
 /// Sensitivity `S = 1 − H` (= 1/(1+L)).
 pub fn sensitivity(h: &[Complex32]) -> Vec<Complex32> {
-    h.iter().map(|&h| Complex32::new(1.0 - h.re, -h.im)).collect()
+    h.iter()
+        .map(|&h| Complex32::new(1.0 - h.re, -h.im))
+        .collect()
 }
 
 /// Predicted sensitivity peak `max 1/|1 + g·L|` over finite bins.
@@ -201,7 +229,11 @@ pub fn step_from_h(h: &[Complex32], nfft: usize, fs: f64, len_ms: f32) -> (Vec<f
     let mut spec = vec![Complex32::default(); nfft];
     for k in 0..nb {
         let v = h[k];
-        spec[k] = if v.re.is_finite() && v.im.is_finite() { v } else { Complex32::default() };
+        spec[k] = if v.re.is_finite() && v.im.is_finite() {
+            v
+        } else {
+            Complex32::default()
+        };
     }
     for k in nb..nfft {
         let mk = nfft - k;
@@ -224,17 +256,24 @@ pub fn step_from_h(h: &[Complex32], nfft: usize, fs: f64, len_ms: f32) -> (Vec<f
 
 fn spec_dc(h: &[Complex32]) -> f32 {
     // |H| at the lowest finite bin (DC itself may be NaN after detrending).
-    h.iter().find(|c| c.re.is_finite() && c.im.is_finite()).map(|c| c.norm()).unwrap_or(0.0)
+    h.iter()
+        .find(|c| c.re.is_finite() && c.im.is_finite())
+        .map(|c| c.norm())
+        .unwrap_or(0.0)
 }
 
 /// First crossing of `level` by `y` (going down or up, whichever first) between
 /// consecutive valid bins, linearly interpolated in `f`. NaN when none.
 pub fn interp_crossing(f: &[f32], y: &[f32], level: f32, valid: &[bool], downward: bool) -> f32 {
     for k in 1..f.len().min(y.len()) {
-        if !(valid[k] && valid[k - 1]) || !(y[k].is_finite() && y[k - 1].is_finite()) {
+        if !valid[k] || !valid[k - 1] || !y[k].is_finite() || !y[k - 1].is_finite() {
             continue;
         }
-        let hit = if downward { y[k] <= level && y[k - 1] > level } else { y[k] >= level && y[k - 1] < level };
+        let hit = if downward {
+            y[k] <= level && y[k - 1] > level
+        } else {
+            y[k] >= level && y[k - 1] < level
+        };
         if hit {
             let frac = (level - y[k - 1]) / (y[k] - y[k - 1]);
             return f[k - 1] + frac * (f[k] - f[k - 1]);
@@ -261,11 +300,22 @@ mod tests {
     }
 
     fn fir(x: &[f32], taps: &[f32]) -> Vec<f32> {
-        (0..x.len()).map(|i| taps.iter().enumerate().map(|(k, t)| if i >= k { t * x[i - k] } else { 0.0 }).sum()).collect()
+        (0..x.len())
+            .map(|i| {
+                taps.iter()
+                    .enumerate()
+                    .map(|(k, t)| if i >= k { t * x[i - k] } else { 0.0 })
+                    .sum()
+            })
+            .collect()
     }
 
     fn fir_response(taps: &[f32], f: f32, fs: f32) -> Complex32 {
-        taps.iter().enumerate().fold(Complex32::default(), |acc, (k, t)| acc + Complex32::from_polar(*t, -std::f32::consts::TAU * f * k as f32 / fs))
+        taps.iter()
+            .enumerate()
+            .fold(Complex32::default(), |acc, (k, t)| {
+                acc + Complex32::from_polar(*t, -std::f32::consts::TAU * f * k as f32 / fs)
+            })
     }
 
     #[test]
@@ -283,7 +333,16 @@ mod tests {
         let taps = [0.5f32, 0.3, 0.15, 0.05];
         let u = noise(200_000, 0x9E3779B97F4A7C15);
         let y = fir(&u, &taps);
-        let cs = cross_welch(&u, &y, fs as f64, CsdOpts { nfft: 512, overlap: 0.5, detrend: true });
+        let cs = cross_welch(
+            &u,
+            &y,
+            fs as f64,
+            CsdOpts {
+                nfft: 512,
+                overlap: 0.5,
+                detrend: true,
+            },
+        );
         let h = cs.transfer();
         let coh = cs.coherence();
         for (k, f) in cs.f_hz.iter().enumerate() {
@@ -305,7 +364,12 @@ mod tests {
     fn noiseless_pair_has_unit_coherence_and_noise_lowers_it() {
         let fs = 2000.0;
         let n = 60_000;
-        let u: Vec<f32> = (0..n).map(|i| (std::f32::consts::TAU * 37.0 * i as f32 / fs).sin() + 0.3 * (std::f32::consts::TAU * 91.0 * i as f32 / fs).sin()).collect();
+        let u: Vec<f32> = (0..n)
+            .map(|i| {
+                (std::f32::consts::TAU * 37.0 * i as f32 / fs).sin()
+                    + 0.3 * (std::f32::consts::TAU * 91.0 * i as f32 / fs).sin()
+            })
+            .collect();
         let y: Vec<f32> = u.iter().map(|v| 0.8 * v).collect();
         let cs = cross_welch(&u, &y, fs as f64, CsdOpts::default());
         let coh = cs.coherence();
@@ -325,18 +389,46 @@ mod tests {
         let u = noise(100_000, 42);
         let y: Vec<f32> = u.iter().map(|v| 0.7 * v).collect();
         let y_off: Vec<f32> = y.iter().map(|v| v + 50.0).collect();
-        let a = cross_welch(&u, &y_off, fs as f64, CsdOpts { nfft: 1024, overlap: 0.5, detrend: true });
-        let b = cross_welch(&u, &y_off, fs as f64, CsdOpts { nfft: 1024, overlap: 0.5, detrend: false });
+        let a = cross_welch(
+            &u,
+            &y_off,
+            fs as f64,
+            CsdOpts {
+                nfft: 1024,
+                overlap: 0.5,
+                detrend: true,
+            },
+        );
+        let b = cross_welch(
+            &u,
+            &y_off,
+            fs as f64,
+            CsdOpts {
+                nfft: 1024,
+                overlap: 0.5,
+                detrend: false,
+            },
+        );
         let ha = a.transfer();
         let hb = b.transfer();
         // with detrend the whole band reads 0.7
         for k in 1..ha.len() {
             if a.f_hz[k] >= 2.0 && a.f_hz[k] <= 800.0 {
-                assert!((20.0 * (ha[k].norm() / 0.7).log10()).abs() < 0.1, "f={} {}", a.f_hz[k], ha[k].norm());
+                assert!(
+                    (20.0 * (ha[k].norm() / 0.7).log10()).abs() < 0.1,
+                    "f={} {}",
+                    a.f_hz[k],
+                    ha[k].norm()
+                );
             }
         }
         // without detrend the DC/first bins are corrupted by the offset
-        assert!((hb[0].norm() - 0.7).abs() > 0.5 || (hb[1].norm() - 0.7).abs() > 0.05, "dc={} b1={}", hb[0].norm(), hb[1].norm());
+        assert!(
+            (hb[0].norm() - 0.7).abs() > 0.5 || (hb[1].norm() - 0.7).abs() > 0.05,
+            "dc={} b1={}",
+            hb[0].norm(),
+            hb[1].norm()
+        );
     }
 
     #[test]
@@ -347,13 +439,19 @@ mod tests {
         let ones: Vec<Complex32> = vec![Complex32::new(1.0, 0.0); nb];
         let (t, s) = step_from_h(&ones, nfft, fs, 100.0);
         assert_eq!(t.len(), 200);
-        assert!((s[0] - 1.0).abs() < 1e-3 && (s[100] - 1.0).abs() < 1e-3, "{:?}", &s[..3]);
+        assert!(
+            (s[0] - 1.0).abs() < 1e-3 && (s[100] - 1.0).abs() < 1e-3,
+            "{:?}",
+            &s[..3]
+        );
         // first order H = 1/(1 + j f/fc), fc = 20 Hz → τ = 7.96 ms → 63 % at τ
         let fc = 20.0f32;
-        let h: Vec<Complex32> = (0..nb).map(|k| {
-            let f = k as f32 * fs as f32 / nfft as f32;
-            Complex32::new(1.0, 0.0) / Complex32::new(1.0, f / fc)
-        }).collect();
+        let h: Vec<Complex32> = (0..nb)
+            .map(|k| {
+                let f = k as f32 * fs as f32 / nfft as f32;
+                Complex32::new(1.0, 0.0) / Complex32::new(1.0, f / fc)
+            })
+            .collect();
         let (t, s) = step_from_h(&h, nfft, fs, 100.0);
         let tau_ms = 1000.0 / (std::f32::consts::TAU * fc);
         let k = t.iter().position(|x| *x >= tau_ms).unwrap();
@@ -363,7 +461,10 @@ mod tests {
     #[test]
     fn unwrap_handles_720_degree_ramp() {
         let true_phase: Vec<f32> = (0..200).map(|i| -3.6 * i as f32).collect(); // 0 → −716.4
-        let mut wrapped: Vec<f32> = true_phase.iter().map(|p| ((p + 180.0).rem_euclid(360.0)) - 180.0).collect();
+        let mut wrapped: Vec<f32> = true_phase
+            .iter()
+            .map(|p| ((p + 180.0).rem_euclid(360.0)) - 180.0)
+            .collect();
         unwrap_deg(&mut wrapped);
         for (a, b) in wrapped.iter().zip(&true_phase) {
             assert!((a - b).abs() < 1e-3, "{a} vs {b}");

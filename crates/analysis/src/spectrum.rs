@@ -26,11 +26,16 @@ pub struct SpectrumOpts {
 
 impl Default for SpectrumOpts {
     fn default() -> Self {
-        Self { mode: SpectrumMode::Welch, nfft: 0, overlap: 0.5, max_hz: 1000.0 }
+        Self {
+            mode: SpectrumMode::Welch,
+            nfft: 0,
+            overlap: 0.5,
+            max_hz: 1000.0,
+        }
     }
 }
 
-pub(crate) fn series<'a>(log: &'a FlightLog, axis: Axis, kind: SpectrumKind) -> Option<&'a [f32]> {
+pub(crate) fn series(log: &FlightLog, axis: Axis, kind: SpectrumKind) -> Option<&[f32]> {
     let ax = log.axis(axis);
     match kind {
         SpectrumKind::GyroRaw => ax.gyro_raw.as_deref(),
@@ -66,8 +71,20 @@ pub fn spectrum(
     }
     let psd = match opts.mode {
         SpectrumMode::Welch => {
-            let nfft = if opts.nfft == 0 { auto_nfft(log.fs_hz, x.len()) } else { opts.nfft };
-            welch(x, log.fs_hz, WelchOpts { nfft, overlap: opts.overlap, ..Default::default() })
+            let nfft = if opts.nfft == 0 {
+                auto_nfft(log.fs_hz, x.len())
+            } else {
+                opts.nfft
+            };
+            welch(
+                x,
+                log.fs_hz,
+                WelchOpts {
+                    nfft,
+                    overlap: opts.overlap,
+                    ..Default::default()
+                },
+            )
         }
         SpectrumMode::PidToolbox => periodogram_pidtoolbox(x, log.fs_hz),
     };

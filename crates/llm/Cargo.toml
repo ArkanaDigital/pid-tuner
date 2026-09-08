@@ -1,0 +1,24 @@
+[package]
+name = "llm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+appconfig = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+async-trait = "0.1"
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "http2", "charset"] }
+tokio = { version = "1", features = ["time", "sync", "rt"] }
+
+[dev-dependencies]
+wiremock = "0.6"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }

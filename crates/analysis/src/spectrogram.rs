@@ -21,7 +21,13 @@ pub struct SpectrogramOpts {
 
 impl Default for SpectrogramOpts {
     fn default() -> Self {
-        Self { segment_s: 0.3, hop_s: 0.15, bin_halfwidth_pct: 1.0, max_hz: 1000.0, min_count: 1 }
+        Self {
+            segment_s: 0.3,
+            hop_s: 0.15,
+            bin_halfwidth_pct: 1.0,
+            max_hz: 1000.0,
+            min_count: 1,
+        }
     }
 }
 
@@ -46,7 +52,11 @@ pub fn throttle_spectrogram(
     let mut fft = RealFft::new(seg);
     let nb = fft.out_len();
     let f_all = fft.freqs(fs);
-    let nf = f_all.iter().take_while(|f| **f <= opts.max_hz).count().max(1);
+    let nf = f_all
+        .iter()
+        .take_while(|f| **f <= opts.max_hz)
+        .count()
+        .max(1);
 
     // Per-segment PSD (linear) + mean throttle %.
     let mut seg_psd: Vec<Vec<f32>> = Vec::new();
@@ -99,5 +109,12 @@ pub fn throttle_spectrogram(
             }
         }
     }
-    Some(Spectrogram { axis, kind, f_hz: f_all[..nf].to_vec(), throttle_bins: bins, db, counts })
+    Some(Spectrogram {
+        axis,
+        kind,
+        f_hz: f_all[..nf].to_vec(),
+        throttle_bins: bins,
+        db,
+        counts,
+    })
 }

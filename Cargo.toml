@@ -11,15 +11,24 @@ members = [
   "crates/session",
   "crates/fc-msp",
     "crates/fc-mavlink",
+    "crates/appconfig",
+    "crates/llm",
   "crates/cli",
   "src-tauri",
 ]
 
 [workspace.package]
-version = "0.2.3"
+version = "0.3.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/arkana/pid-tuner"
+
+[workspace.lints.clippy]
+# Index-based loops over several parallel arrays are the clearest form for the DSP code.
+needless_range_loop = "allow"
+field_reassign_with_default = "allow"
+too_many_arguments = "allow"
+type_complexity = "allow"
 
 [workspace.dependencies]
 domain = { path = "crates/domain" }
@@ -32,6 +41,8 @@ recommend = { path = "crates/recommend" }
 session = { path = "crates/session" }
 fc-msp = { path = "crates/fc-msp" }
 fc-mavlink = { path = "crates/fc-mavlink" }
+appconfig = { path = "crates/appconfig" }
+llm = { path = "crates/llm" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

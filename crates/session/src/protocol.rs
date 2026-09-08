@@ -108,13 +108,34 @@ mod tests {
     use super::*;
     #[test]
     fn every_flight_has_text_for_both_firmwares() {
-        for fw in [None, Some(Firmware::ArduCopter { version: "4.5".into() }), Some(Firmware::Betaflight { version: "2026.6.1".into(), api: (1, 47) })] {
+        for fw in [
+            None,
+            Some(Firmware::ArduCopter {
+                version: "4.5".into(),
+            }),
+            Some(Firmware::Betaflight {
+                version: "2026.6.1".into(),
+                api: (1, 47),
+            }),
+        ] {
             for f in [Flight::A, Flight::B, Flight::C] {
                 let p = text(fw.as_ref(), f);
                 assert!(!p.title.is_empty() && p.steps.len() >= 3 && !p.note.is_empty());
             }
         }
-        assert!(text(None, Flight::B).alternative.as_ref().unwrap().title.contains("CHIRP"));
-        assert!(text(Some(&Firmware::ArduCopter { version: "4.5".into() }), Flight::B).alternative.is_none());
+        assert!(text(None, Flight::B)
+            .alternative
+            .as_ref()
+            .unwrap()
+            .title
+            .contains("CHIRP"));
+        assert!(text(
+            Some(&Firmware::ArduCopter {
+                version: "4.5".into()
+            }),
+            Flight::B
+        )
+        .alternative
+        .is_none());
     }
 }

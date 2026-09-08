@@ -24,6 +24,10 @@ impl RealFft {
         self.n
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.n == 0
+    }
+
     pub fn out_len(&self) -> usize {
         self.n / 2 + 1
     }
@@ -40,7 +44,9 @@ impl RealFft {
     /// Bin center frequencies in Hz for a sample rate `fs`.
     pub fn freqs(&self, fs: f64) -> Vec<f32> {
         let n = self.n as f64;
-        (0..self.out_len()).map(|k| (k as f64 * fs / n) as f32).collect()
+        (0..self.out_len())
+            .map(|k| (k as f64 * fs / n) as f32)
+            .collect()
     }
 }
 
@@ -57,7 +63,9 @@ impl ComplexFft {
         let mut planner = FftPlanner::<f32>::new();
         let fwd = planner.plan_fft_forward(n);
         let inv = planner.plan_fft_inverse(n);
-        let len = fwd.get_inplace_scratch_len().max(inv.get_inplace_scratch_len());
+        let len = fwd
+            .get_inplace_scratch_len()
+            .max(inv.get_inplace_scratch_len());
         Self {
             n,
             fwd,
@@ -68,6 +76,10 @@ impl ComplexFft {
 
     pub fn len(&self) -> usize {
         self.n
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.n == 0
     }
 
     pub fn forward_real(&mut self, x: &[f32]) -> Vec<Complex32> {
@@ -90,7 +102,11 @@ impl ComplexFft {
         let n = self.n;
         (0..n)
             .map(|k| {
-                let k = if k <= n / 2 { k as f64 } else { k as f64 - n as f64 };
+                let k = if k <= n / 2 {
+                    k as f64
+                } else {
+                    k as f64 - n as f64
+                };
                 (k.abs() * fs / n as f64) as f32
             })
             .collect()

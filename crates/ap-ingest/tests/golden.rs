@@ -9,7 +9,9 @@ use std::path::PathBuf;
 fn fixture(name: &str) -> Option<(Vec<u8>, J)> {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/ap");
     let bin = std::fs::read(dir.join(format!("{name}.bin"))).ok()?;
-    let golden: J = serde_json::from_slice(&std::fs::read(dir.join(format!("{name}.golden.json"))).ok()?).ok()?;
+    let golden: J =
+        serde_json::from_slice(&std::fs::read(dir.join(format!("{name}.golden.json"))).ok()?)
+            .ok()?;
     Some((bin, golden))
 }
 
@@ -23,14 +25,30 @@ fn approx(a: f64, b: f64) -> bool {
 fn check_rows(ix: &Index, msg: &str, rows: &[J], offset_from_end: bool) {
     let n = ix.count(msg);
     for (k, row) in rows.iter().enumerate() {
-        let i = if offset_from_end { n - rows.len() + k } else { k };
-        let ours = ix.row(msg, i).unwrap_or_else(|| panic!("{msg} row {i} missing"));
+        let i = if offset_from_end {
+            n - rows.len() + k
+        } else {
+            k
+        };
+        let ours = ix
+            .row(msg, i)
+            .unwrap_or_else(|| panic!("{msg} row {i} missing"));
         for (col, want) in row.as_object().unwrap() {
-            let (_, v) = ours.iter().find(|(c, _)| c == col).unwrap_or_else(|| panic!("{msg}.{col} missing"));
+            let (_, v) = ours
+                .iter()
+                .find(|(c, _)| c == col)
+                .unwrap_or_else(|| panic!("{msg}.{col} missing"));
             match (v, want) {
-                (Value::F(a), J::Number(b)) => assert!(approx(*a, b.as_f64().unwrap()), "{msg}[{i}].{col}: {a} vs {b}"),
-                (Value::I(a), J::Number(b)) => assert_eq!(*a, b.as_i64().unwrap(), "{msg}[{i}].{col}"),
-                (Value::U(a), J::Number(b)) => assert_eq!(*a, b.as_u64().unwrap(), "{msg}[{i}].{col}"),
+                (Value::F(a), J::Number(b)) => assert!(
+                    approx(*a, b.as_f64().unwrap()),
+                    "{msg}[{i}].{col}: {a} vs {b}"
+                ),
+                (Value::I(a), J::Number(b)) => {
+                    assert_eq!(*a, b.as_i64().unwrap(), "{msg}[{i}].{col}")
+                }
+                (Value::U(a), J::Number(b)) => {
+                    assert_eq!(*a, b.as_u64().unwrap(), "{msg}[{i}].{col}")
+                }
                 (v, w) => panic!("{msg}[{i}].{col}: {v:?} vs {w}"),
             }
         }
@@ -49,10 +67,21 @@ fn run_golden(name: &str) {
         if fname == "FMT" {
             continue;
         }
-        let ours = ix.def(fname).unwrap_or_else(|| panic!("FMT {fname} missing"));
-        assert_eq!(ours.format, def["format"].as_str().unwrap(), "{fname} format");
+        let ours = ix
+            .def(fname)
+            .unwrap_or_else(|| panic!("FMT {fname} missing"));
+        assert_eq!(
+            ours.format,
+            def["format"].as_str().unwrap(),
+            "{fname} format"
+        );
         assert_eq!(ours.len as u64, def["len"].as_u64().unwrap(), "{fname} len");
-        let cols: Vec<&str> = def["columns"].as_array().unwrap().iter().map(|c| c.as_str().unwrap()).collect();
+        let cols: Vec<&str> = def["columns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c.as_str().unwrap())
+            .collect();
         // Column text can be corrupt in the file (e.g. `SA` in the 4.6.3 log); pymavlink keeps it verbatim.
         if cols.iter().all(|c| c.is_ascii()) && cols.len() == ours.types.len() {
             assert_eq!(ours.columns, cols, "{fname} columns");
@@ -77,7 +106,11 @@ fn run_golden(name: &str) {
             }
         }
     }
-    assert_eq!(first, g["time_us"]["first"].as_u64().unwrap(), "first TimeUS");
+    assert_eq!(
+        first,
+        g["time_us"]["first"].as_u64().unwrap(),
+        "first TimeUS"
+    );
     assert_eq!(last, g["time_us"]["last"].as_u64().unwrap(), "last TimeUS");
     // rows head/tail
     for (m, r) in g["rows"].as_object().unwrap() {
@@ -88,10 +121,17 @@ fn run_golden(name: &str) {
     for (inst, e) in g["imu"].as_object().unwrap() {
         let inst: u8 = inst.parse().unwrap();
         let rows = ix.instance_rows("IMU", inst);
-        assert_eq!(rows.len() as u64, e["count"].as_u64().unwrap(), "IMU[{inst}] count");
+        assert_eq!(
+            rows.len() as u64,
+            e["count"].as_u64().unwrap(),
+            "IMU[{inst}] count"
+        );
         let gx = ix.column_f64("IMU", "GyrX").unwrap();
         for (k, row) in e["head"].as_array().unwrap().iter().enumerate() {
-            assert!(approx(gx[rows[k]], row["GyrX"].as_f64().unwrap()), "IMU[{inst}] GyrX row {k}");
+            assert!(
+                approx(gx[rows[k]], row["GyrX"].as_f64().unwrap()),
+                "IMU[{inst}] GyrX row {k}"
+            );
         }
     }
     // ISBH + raw ISBD samples
@@ -104,26 +144,50 @@ fn run_golden(name: &str) {
             let ours = ix.row("ISBH", h).unwrap();
             for (col, want) in hrow.as_object().unwrap() {
                 let (_, v) = ours.iter().find(|(c, _)| c == col).unwrap();
-                assert!(approx(v.as_f64().unwrap(), want.as_f64().unwrap()), "ISBH[{h}].{col}");
+                assert!(
+                    approx(v.as_f64().unwrap(), want.as_f64().unwrap()),
+                    "ISBH[{h}].{col}"
+                );
             }
             let n = hrow["N"].as_u64().unwrap();
             if let Some(chunks) = g["isbd"].get(n.to_string()) {
                 for ch in chunks.as_array().unwrap() {
                     let sq = ch["seqno"].as_u64().unwrap();
-                    let i = (0..n_col.len()).find(|&i| n_col[i] == n && seq[i] == sq).expect("ISBD chunk");
-                    let want: Vec<i64> = ch["x"].as_array().unwrap().iter().map(|v| v.as_i64().unwrap()).collect();
-                    assert_eq!(xs[i].iter().map(|v| *v as i64).collect::<Vec<_>>(), want, "ISBD N={n} seq={sq} x");
+                    let i = (0..n_col.len())
+                        .find(|&i| n_col[i] == n && seq[i] == sq)
+                        .expect("ISBD chunk");
+                    let want: Vec<i64> = ch["x"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|v| v.as_i64().unwrap())
+                        .collect();
+                    assert_eq!(
+                        xs[i].iter().map(|v| *v as i64).collect::<Vec<_>>(),
+                        want,
+                        "ISBD N={n} seq={sq} x"
+                    );
                 }
             }
         }
     }
     // PARM (last value wins)
     for (name, v) in g["parm"].as_object().unwrap() {
-        let ours = ix.param(name).unwrap_or_else(|| panic!("PARM {name} missing"));
-        assert!(approx(ours as f64, v.as_f64().unwrap()), "PARM {name}: {ours} vs {v}");
+        let ours = ix
+            .param(name)
+            .unwrap_or_else(|| panic!("PARM {name} missing"));
+        assert!(
+            approx(ours as f64, v.as_f64().unwrap()),
+            "PARM {name}: {ours} vs {v}"
+        );
     }
     // MSG banner
-    let msgs: Vec<&str> = g["msg"].as_array().unwrap().iter().map(|m| m.as_str().unwrap()).collect();
+    let msgs: Vec<&str> = g["msg"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m.as_str().unwrap())
+        .collect();
     assert_eq!(&ix.messages[..msgs.len()], msgs);
 }
 
@@ -144,15 +208,22 @@ fn golden_copter_4_6_3() {
 /// ("Skipped 54/60/52 bad bytes at offset 462847/688123/1052664").
 #[test]
 fn corrupt_regions_match_pymavlink() {
-    let Some((bin, _)) = fixture("copter_4.6.3_quad_pid_msgs") else { return };
+    let Some((bin, _)) = fixture("copter_4.6.3_quad_pid_msgs") else {
+        return;
+    };
     let ix = Index::scan(&bin);
-    assert_eq!(ix.stats.corrupt_regions, vec![(462847, 54), (688123, 60), (1052664, 52)]);
+    assert_eq!(
+        ix.stats.corrupt_regions,
+        vec![(462847, 54), (688123, 60), (1052664, 52)]
+    );
 }
 
 /// PIDx Tar/Act are rad/s: RATE.R / PIDR.Act == RAD_TO_DEG at matching stamps.
 #[test]
 fn pidx_is_rad_per_s() {
-    let Some((bin, _)) = fixture("copter_4.6.3_quad_pid_msgs") else { return };
+    let Some((bin, _)) = fixture("copter_4.6.3_quad_pid_msgs") else {
+        return;
+    };
     let ix = Index::scan(&bin);
     let rt = ix.column_u64("RATE", "TimeUS").unwrap();
     let rr = ix.column_f64("RATE", "R").unwrap();
@@ -163,7 +234,10 @@ fn pidx_is_rad_per_s() {
         if let Some(j) = rt.iter().position(|x| x.abs_diff(*t) < 2000) {
             if rr[j].abs() > 5.0 {
                 let ratio = rr[j] / pa[i];
-                assert!((ratio - domain::ap_consts::RAD_TO_DEG).abs() < 0.01, "ratio {ratio}");
+                assert!(
+                    (ratio - domain::ap_consts::RAD_TO_DEG).abs() < 0.01,
+                    "ratio {ratio}"
+                );
                 checked += 1;
             }
         }
@@ -173,21 +247,38 @@ fn pidx_is_rad_per_s() {
 
 #[test]
 fn ingest_10hz_pid_log_is_not_upsampled() {
-    let Some((bin, _)) = fixture("copter_4.6.3_quad_pid_msgs") else { return };
+    let Some((bin, _)) = fixture("copter_4.6.3_quad_pid_msgs") else {
+        return;
+    };
     let log = ap_ingest::ingest(&bin, 0, &Default::default()).unwrap();
-    assert!(matches!(log.firmware, domain::Firmware::ArduCopter { ref version } if version == "4.6.3"));
+    assert!(
+        matches!(log.firmware, domain::Firmware::ArduCopter { ref version } if version == "4.6.3")
+    );
     let r = log.meta.msg_rates_hz["PIDR"];
     assert!((r - 10.0).abs() < 0.5, "PIDR rate {r}");
     assert_eq!(log.fs_hz, 10.0);
-    assert!(log.meta.warnings.iter().any(|w| w.contains("LOG_BITMASK bit 0")), "{:?}", log.meta.warnings);
-    assert!(log.duration_s() > 40.0 && log.duration_s() < 60.0, "{}", log.duration_s());
+    assert!(
+        log.meta
+            .warnings
+            .iter()
+            .any(|w| w.contains("LOG_BITMASK bit 0")),
+        "{:?}",
+        log.meta.warnings
+    );
+    assert!(
+        log.duration_s() > 40.0 && log.duration_s() < 60.0,
+        "{}",
+        log.duration_s()
+    );
     assert_eq!(log.motors.len(), 4);
     assert!(matches!(&log.tune_at_log, domain::Tune::Ap(t) if t.get("ATC_RAT_RLL_P").is_some()));
 }
 
 #[test]
 fn ingest_batch_sampler_tracks() {
-    let Some((bin, _)) = fixture("copter_4.5.5_tarot_x4_batch_imu") else { return };
+    let Some((bin, _)) = fixture("copter_4.5.5_tarot_x4_batch_imu") else {
+        return;
+    };
     let log = ap_ingest::ingest(&bin, 0, &Default::default()).unwrap();
     assert!(!log.gyro_hr.is_empty(), "no gyro tracks");
     let total: usize = log.gyro_hr.iter().map(|t| t.batches.len()).sum();
@@ -198,5 +289,9 @@ fn ingest_batch_sampler_tracks() {
     let tr = &log.gyro_hr[0];
     assert!(tr.fs_hz > 1000.0, "smp_rate {}", tr.fs_hz);
     assert_eq!(tr.batches[0].xyz[0].len() % 32, 0);
-    assert!(log.meta.warnings.iter().any(|w| w.contains("PIDR/PIDP/PIDY absent")));
+    assert!(log
+        .meta
+        .warnings
+        .iter()
+        .any(|w| w.contains("PIDR/PIDP/PIDY absent")));
 }

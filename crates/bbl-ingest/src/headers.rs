@@ -24,13 +24,19 @@ fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
 pub fn raw_headers(bytes: &[u8], index: usize) -> BTreeMap<String, String> {
     let mut map = BTreeMap::new();
     let offsets = session_offsets(bytes);
-    let Some(&start) = offsets.get(index) else { return map };
+    let Some(&start) = offsets.get(index) else {
+        return map;
+    };
     let mut pos = start;
     while pos < bytes.len() {
         if bytes[pos] != b'H' || bytes.get(pos + 1) != Some(&b' ') {
             break;
         }
-        let end = bytes[pos..].iter().position(|b| *b == b'\n').map(|e| pos + e).unwrap_or(bytes.len());
+        let end = bytes[pos..]
+            .iter()
+            .position(|b| *b == b'\n')
+            .map(|e| pos + e)
+            .unwrap_or(bytes.len());
         let line = String::from_utf8_lossy(&bytes[pos + 2..end]);
         if let Some((k, v)) = line.split_once(':') {
             map.insert(k.trim().to_string(), v.trim().to_string());

@@ -122,12 +122,19 @@ impl FmtDef {
         }
         let computed: usize = types.iter().map(|t| t.size()).sum();
         if (len as usize) < 3 || len as usize - 3 != computed {
-            return Err(FmtError::LengthMismatch { declared: len, computed });
+            return Err(FmtError::LengthMismatch {
+                declared: len,
+                computed,
+            });
         }
         // pymavlink keeps a definition whose column list disagrees with the
         // format (corrupt FMT text is common); the byte layout is what matters
         // for resynchronisation, so pad / truncate the names instead of rejecting.
-        let mut columns: Vec<String> = if columns.is_empty() { Vec::new() } else { columns.split(',').map(|s| s.to_string()).collect() };
+        let mut columns: Vec<String> = if columns.is_empty() {
+            Vec::new()
+        } else {
+            columns.split(',').map(|s| s.to_string()).collect()
+        };
         let mut columns_padded = false;
         if columns.len() != types.len() {
             columns_padded = true;
@@ -142,7 +149,19 @@ impl FmtDef {
             offsets.push(o);
             o += t.size();
         }
-        Ok(Self { id, len, name: name.to_string(), format: format.to_string(), columns, types, offsets, units: None, mults: None, instance_col: None, columns_padded })
+        Ok(Self {
+            id,
+            len,
+            name: name.to_string(),
+            format: format.to_string(),
+            columns,
+            types,
+            offsets,
+            units: None,
+            mults: None,
+            instance_col: None,
+            columns_padded,
+        })
     }
 
     pub fn payload_len(&self) -> usize {
@@ -178,7 +197,28 @@ mod tests {
 
     #[test]
     fn sizes_match_logstructure_h() {
-        let expect = [(b'a', 64), (b'b', 1), (b'B', 1), (b'h', 2), (b'H', 2), (b'i', 4), (b'I', 4), (b'f', 4), (b'd', 8), (b'n', 4), (b'N', 16), (b'Z', 64), (b'c', 2), (b'C', 2), (b'e', 4), (b'E', 4), (b'L', 4), (b'M', 1), (b'q', 8), (b'Q', 8)];
+        let expect = [
+            (b'a', 64),
+            (b'b', 1),
+            (b'B', 1),
+            (b'h', 2),
+            (b'H', 2),
+            (b'i', 4),
+            (b'I', 4),
+            (b'f', 4),
+            (b'd', 8),
+            (b'n', 4),
+            (b'N', 16),
+            (b'Z', 64),
+            (b'c', 2),
+            (b'C', 2),
+            (b'e', 4),
+            (b'E', 4),
+            (b'L', 4),
+            (b'M', 1),
+            (b'q', 8),
+            (b'Q', 8),
+        ];
         for (c, n) in expect {
             assert_eq!(FieldType::from_char(c).unwrap().size(), n, "{}", c as char);
         }
@@ -194,13 +234,32 @@ mod tests {
 
     #[test]
     fn length_mismatch_is_rejected() {
-        assert_eq!(FmtDef::new(1, 10, "X", "Qf", "a,b").unwrap_err(), FmtError::LengthMismatch { declared: 10, computed: 12 });
-        assert_eq!(FmtDef::new(1, 2, "X", "", "").unwrap_err(), FmtError::LengthMismatch { declared: 2, computed: 0 });
+        assert_eq!(
+            FmtDef::new(1, 10, "X", "Qf", "a,b").unwrap_err(),
+            FmtError::LengthMismatch {
+                declared: 10,
+                computed: 12
+            }
+        );
+        assert_eq!(
+            FmtDef::new(1, 2, "X", "", "").unwrap_err(),
+            FmtError::LengthMismatch {
+                declared: 2,
+                computed: 0
+            }
+        );
     }
 
     #[test]
     fn column_mismatch_is_padded_like_pymavlink() {
-        let f = FmtDef::new(172, 37, "SA", "QBffffffB", "TimeUS,State,DVelX,DVelY,garbage,Back").unwrap();
+        let f = FmtDef::new(
+            172,
+            37,
+            "SA",
+            "QBffffffB",
+            "TimeUS,State,DVelX,DVelY,garbage,Back",
+        )
+        .unwrap();
         assert!(f.columns_padded);
         assert_eq!(f.columns.len(), 9);
         assert_eq!(f.columns[8], "col8");
@@ -209,7 +268,8 @@ mod tests {
 
     #[test]
     fn instance_column_from_units() {
-        let mut f = FmtDef::new(5, 3 + 8 + 1 + 12, "IMU", "QBfff", "TimeUS,I,GyrX,GyrY,GyrZ").unwrap();
+        let mut f =
+            FmtDef::new(5, 3 + 8 + 1 + 12, "IMU", "QBfff", "TimeUS,I,GyrX,GyrY,GyrZ").unwrap();
         f.apply_units("s#EEE", "F-000");
         assert_eq!(f.instance_col, Some(1));
     }

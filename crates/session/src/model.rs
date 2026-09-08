@@ -72,7 +72,10 @@ impl Step {
     }
     /// Steps that need a connected flight controller.
     pub fn needs_fc(self) -> bool {
-        matches!(self, Step::Connect | Step::Preflight | Step::ApplyFilters | Step::ApplyPids)
+        matches!(
+            self,
+            Step::Connect | Step::Preflight | Step::ApplyFilters | Step::ApplyPids
+        )
     }
     pub fn flight(self) -> Option<Flight> {
         match self {
@@ -261,7 +264,9 @@ impl Session {
     }
 
     pub fn is_overridden(&self, step: Step, guard_id: &str) -> bool {
-        self.overrides.iter().any(|o| o.step == step && o.guard_id == guard_id)
+        self.overrides
+            .iter()
+            .any(|o| o.step == step && o.guard_id == guard_id)
     }
 
     pub fn apply_for(&self, phase: ApplyPhase) -> Option<&ApplyRecord> {

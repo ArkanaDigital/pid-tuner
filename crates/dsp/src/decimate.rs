@@ -30,7 +30,11 @@ pub fn minmax(x: &[f32], y: &[f32], px_width: usize) -> (Vec<f32>, Vec<f32>) {
                 imax = i;
             }
         }
-        let (a, c) = if imin <= imax { (imin, imax) } else { (imax, imin) };
+        let (a, c) = if imin <= imax {
+            (imin, imax)
+        } else {
+            (imax, imin)
+        };
         xs.push(x[a]);
         ys.push(y[a]);
         if c != a {

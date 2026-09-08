@@ -114,7 +114,16 @@ mod tests {
     }
     #[test]
     fn mode_numbers() {
-        assert_eq!((MODE_STABILIZE, MODE_ACRO, MODE_ALT_HOLD, MODE_LOITER, MODE_AUTOTUNE), (0, 1, 2, 5, 15));
+        assert_eq!(
+            (
+                MODE_STABILIZE,
+                MODE_ACRO,
+                MODE_ALT_HOLD,
+                MODE_LOITER,
+                MODE_AUTOTUNE
+            ),
+            (0, 1, 2, 5, 15)
+        );
     }
     #[test]
     fn log_event_ids() {
@@ -122,7 +131,10 @@ mod tests {
     }
     #[test]
     fn fmt_message() {
-        assert_eq!((FMT_MSG_ID, FMT_MSG_LEN, HEAD_BYTE1, HEAD_BYTE2), (128, 89, 0xA3, 0x95));
+        assert_eq!(
+            (FMT_MSG_ID, FMT_MSG_LEN, HEAD_BYTE1, HEAD_BYTE2),
+            (128, 89, 0xA3, 0x95)
+        );
     }
     #[test]
     fn isbd_chunk_and_type() {
@@ -130,7 +142,10 @@ mod tests {
     }
     #[test]
     fn ins_log_bat_opt_bits() {
-        assert_eq!((INS_LOG_BAT_OPT_POST_FILTER, INS_LOG_BAT_OPT_PRE_POST), (2, 4));
+        assert_eq!(
+            (INS_LOG_BAT_OPT_POST_FILTER, INS_LOG_BAT_OPT_PRE_POST),
+            (2, 4)
+        );
     }
     #[test]
     fn mavlink_log_data_chunk() {
