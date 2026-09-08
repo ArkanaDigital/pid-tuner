@@ -17,6 +17,8 @@ interface Props {
   smoothMs?: number;
   /** Show the 10–90 % spread band. */
   showBand?: boolean;
+  /** Time axis extent (ms); 100 for the chirp-derived step. */
+  xMaxMs?: number;
 }
 
 function smooth(y: number[], fsHz: number, ms: number): number[] {
@@ -40,13 +42,13 @@ export function reliability(n: number): { label: string; cls: string } {
   return { label: "good", cls: "good" };
 }
 
-export default function StepResponseChart({ step, compare, yMax = 1.5, height = 220, smoothMs = 0, showBand = true }: Props) {
+export default function StepResponseChart({ step, compare, yMax = 1.5, height = 220, smoothMs = 0, showBand = true, xMaxMs = 500 }: Props) {
   const opts = useMemo<Omit<uPlot.Options, "width" | "height">>(
     () => ({
       title: undefined,
       cursor: { drag: { x: false, y: false } },
       legend: { show: false },
-      scales: { x: { time: false, range: [0, 500] }, y: { range: [0, yMax] } },
+      scales: { x: { time: false, range: [0, xMaxMs] }, y: { range: [0, yMax] } },
       axes: [
         { label: "Time (ms)", stroke: "#222", grid: { stroke: "#ddd", width: 1 }, ticks: { stroke: "#bbb" } },
         {
@@ -68,7 +70,7 @@ export default function StepResponseChart({ step, compare, yMax = 1.5, height = 
       ],
       bands: showBand ? [{ series: [3, 2], fill: ORANGE_FILL }] : [],
     }),
-    [step.axis, yMax, showBand],
+    [step.axis, yMax, showBand, xMaxMs],
   );
 
   const data = useMemo<uPlot.AlignedData>(() => {

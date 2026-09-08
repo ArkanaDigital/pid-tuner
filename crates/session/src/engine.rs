@@ -158,6 +158,10 @@ impl SessionEngine {
         if self.session.firmware.is_none() {
             self.session.firmware = Some(log.firmware.clone());
         }
+        if which == Flight::B {
+            let chirp = bundle.quality.chirp_windows_per_axis.iter().any(|w| *w > 0);
+            self.session.pid_source = if chirp { PidSource::Chirp } else { PidSource::StepResponse };
+        }
         self.touch()
     }
 
@@ -262,6 +266,9 @@ mod tests {
             meta: LogMeta { duration_s: dur, ..Default::default() },
             tune_at_log: Tune::Bf(BfTune::default()),
             gyro_hr: Vec::new(),
+            debug: vec![],
+            chirp: None,
+            flight_mode_flags: vec![],
         };
         let bundle = AnalysisBundle {
             log: log.id.clone(),
@@ -280,12 +287,16 @@ mod tests {
                 max_setpoint_per_axis: [300.0, 300.0, 300.0],
                 step_segments_per_axis: [10, 10, 5],
                 gap_seconds: 0.0,
+                chirp_sweeps_per_axis: [0; 3],
+                chirp_windows_per_axis: [0; 3],
+                chirp_coherence_per_axis: [0.0; 3],
             },
             steps: vec![],
             spectra: vec![],
             spectrograms: vec![],
             peaks: vec![],
             anomalies: vec![],
+            freq_resp: vec![],
         };
         (log, bundle)
     }

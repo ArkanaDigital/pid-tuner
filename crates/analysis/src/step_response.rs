@@ -308,6 +308,9 @@ mod tests {
             meta: LogMeta::default(),
             tune_at_log: Tune::Unknown,
             gyro_hr: Vec::new(),
+            debug: vec![],
+            chirp: None,
+            flight_mode_flags: vec![],
         }
     }
 

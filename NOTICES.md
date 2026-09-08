@@ -36,3 +36,13 @@ reference implementations were ported from:
   a cross-check for `crates/ap-ingest/src/format.rs` (crate not linked).
 - **rust-mavlink** — MIT OR Apache-2.0: MAVLink 2 framing and the
   `ardupilotmega` dialect generated from the official XML. → `crates/fc-mavlink`.
+- **Betaflight Configurator** — Betaflight dev team (GPL-3.0-or-later): Autotune tab
+  `src/js/blackbox/spectral_analysis.js` and `chirp_bbl_parser.js` (Welch
+  cross-spectrum transfer estimate, coherence, open-loop/sensitivity, metrics and
+  gain-scale logic) → `crates/dsp/src/cross.rs`, `crates/analysis/src/chirp.rs`,
+  `crates/bbl-ingest/src/chirp.rs`, `crates/recommend/src/bf_chirp.rs`.
+- **Betaflight Blackbox Explorer** — `src/flightlog_fielddefs.js` (GPL-3.0) as the
+  cross-check for the `debug_mode` name tables in `crates/bbl-ingest/src/debug_modes.rs`
+  (values verified against `src/main/build/debug.h` at tags 2025.12.2 and 2026.6.1).
+- **pichim/bf_controller_tuning** — Peter Michael (GPL-3.0): example chirp log
+  `logs/example_logs/Gyro_Angle.TXT` used as a test fixture (see `fixtures/SOURCES.md`).

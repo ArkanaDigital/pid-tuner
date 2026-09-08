@@ -2,6 +2,7 @@
 //! peaks and a quality summary. Pure computation; parallel per axis.
 
 pub mod anomaly;
+pub mod chirp;
 pub mod hr;
 pub mod peaks;
 pub mod predicted;
@@ -15,6 +16,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 pub use anomaly::AnomalyOpts;
+pub use chirp::ChirpOpts;
 pub use peaks::PeakOpts;
 pub use spectrogram::SpectrogramOpts;
 pub use spectrum::{SpectrumMode, SpectrumOpts};
@@ -27,6 +29,7 @@ pub struct AnalysisOpts {
     pub spectrogram: SpectrogramOpts,
     pub peaks: PeakOpts,
     pub anomaly: AnomalyOpts,
+    pub chirp: ChirpOpts,
     /// Optional time range (seconds) to restrict spectrum/spectrogram analysis.
     pub range_s: Option<(f32, f32)>,
 }
@@ -106,6 +109,18 @@ pub fn analyze(log: &FlightLog, opts: &AnalysisOpts, progress: impl Fn(f32) + Sy
     progress(1.0);
 
     let anomalies = anomaly::detect(log, quality.airborne_range_s, &opts.anomaly);
+    // Betaflight CHIRP sweeps → closed-loop frequency response per axis
+    let freq_resp: Vec<domain::FrequencyResponse> = if log.chirp.as_ref().map(|c| !c.segments.is_empty()).unwrap_or(false) {
+        Axis::ALL.par_iter().filter_map(|&a| chirp::frequency_response(log, a, &opts.chirp)).collect()
+    } else {
+        Vec::new()
+    };
+    for fr in &freq_resp {
+        let k = fr.axis.index();
+        quality.chirp_sweeps_per_axis[k] = fr.n_sweeps;
+        quality.chirp_windows_per_axis[k] = fr.n_windows;
+        quality.chirp_coherence_per_axis[k] = if fr.metrics.coherence_mean.is_finite() { fr.metrics.coherence_mean } else { 0.0 };
+    }
     AnalysisBundle {
         log: log.id.clone(),
         quality,
@@ -114,6 +129,7 @@ pub fn analyze(log: &FlightLog, opts: &AnalysisOpts, progress: impl Fn(f32) + Sy
         spectrograms,
         peaks,
         anomalies,
+        freq_resp,
     }
 }
 

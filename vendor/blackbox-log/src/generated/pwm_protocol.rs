@@ -3,6 +3,8 @@
 /// An ESC communication protocol.
 #[non_exhaustive]
 pub enum PwmProtocol {
+    /// Raw id not in the generated table (newer firmware). Patch 5.
+    Unknown(u32),
     /// `BRUSHED`
     Brushed,
     /// `DISABLED`
@@ -28,6 +30,7 @@ pub enum PwmProtocol {
 impl crate::units::Flag for PwmProtocol {
     fn as_name(&self) -> &'static str {
         match self {
+            Self::Unknown(_) => "UNKNOWN",
             Self::Brushed => "BRUSHED",
             Self::Disabled => "DISABLED",
             Self::Dshot150 => "DSHOT150",

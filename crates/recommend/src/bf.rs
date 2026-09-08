@@ -4,7 +4,7 @@
 use domain::*;
 use uuid::Uuid;
 
-fn rec(
+pub(crate) fn rec(
     name: &str,
     old: ParamValue,
     new: ParamValue,
@@ -25,10 +25,10 @@ fn rec(
     }
 }
 
-fn clamp_u8(v: i32, lo: u8, hi: u8) -> u8 {
+pub(crate) fn clamp_u8(v: i32, lo: u8, hi: u8) -> u8 {
     v.clamp(lo as i32, hi as i32) as u8
 }
-fn clamp_u16(v: i32, lo: u16, hi: u16) -> u16 {
+pub(crate) fn clamp_u16(v: i32, lo: u16, hi: u16) -> u16 {
     v.clamp(lo as i32, hi as i32) as u16
 }
 
@@ -193,6 +193,9 @@ pub fn filters(t: &BfTune, b: &AnalysisBundle) -> Vec<Recommendation> {
 pub fn pids(t: &BfTune, b: &AnalysisBundle) -> Vec<Recommendation> {
     let mut out = Vec::new();
     let mut changes: Vec<Recommendation> = Vec::new();
+    // CHIRP frequency responses first; axes they cover skip the step-response rules.
+    let (chirp_recs, chirp_covered) = crate::bf_chirp::rules(t, b);
+    let chirp_raw = chirp_covered.iter().any(|c| *c) && t.simplified.pids_mode == 0;
     let names: Vec<(String, String, String, String, String)> = (0..3)
         .map(|k| {
             let ax = ["roll", "pitch", "yaw"][k];
@@ -201,7 +204,7 @@ pub fn pids(t: &BfTune, b: &AnalysisBundle) -> Vec<Recommendation> {
         .collect();
 
     for s in &b.steps {
-        if s.n_segments < 5 {
+        if s.n_segments < 5 || chirp_covered[s.axis.index()] {
             continue;
         }
         let k = s.axis.index();
@@ -284,14 +287,14 @@ pub fn pids(t: &BfTune, b: &AnalysisBundle) -> Vec<Recommendation> {
         }
     }
 
-    if !changes.is_empty() {
+    if !changes.is_empty() || chirp_raw {
         simplified_off(t, &mut out, true, false);
-        // merge duplicate params (keep first)
-        let mut seen = std::collections::HashSet::new();
-        for c in changes {
-            if seen.insert(c.param.name().to_string()) {
-                out.push(c);
-            }
+    }
+    // merge duplicate params (keep first); chirp rules take precedence
+    let mut seen = std::collections::HashSet::new();
+    for c in chirp_recs.into_iter().chain(changes) {
+        if seen.insert(c.param.name().to_string()) {
+            out.push(c);
         }
     }
     out
@@ -309,7 +312,7 @@ mod tests {
         AnalysisBundle {
             log: LogId("x".into()), quality: LogQuality::default(),
             steps: vec![step(Axis::Roll, 1.05), step(Axis::Pitch, 1.25), step(Axis::Yaw, 1.0)],
-            spectra: vec![], spectrograms: vec![], peaks: vec![], anomalies: vec![],
+            spectra: vec![], spectrograms: vec![], peaks: vec![], anomalies: vec![], freq_resp: vec![],
         }
     }
 

@@ -38,6 +38,30 @@ pub fn interp_linear(t_src: &[f64], y_src: &[f32], t_dst: &[f32]) -> Vec<f32> {
     out
 }
 
+/// Nearest-sample resampling of `y(t_src)` onto `t_dst` (for discrete-valued
+/// series such as Betaflight `debug[]` axis/flag channels, where interpolation
+/// would invent intermediate values).
+pub fn interp_nearest(t_src: &[f64], y_src: &[f32], t_dst: &[f32]) -> Vec<f32> {
+    assert_eq!(t_src.len(), y_src.len());
+    let n = t_src.len();
+    let mut out = Vec::with_capacity(t_dst.len());
+    if n == 0 {
+        out.resize(t_dst.len(), 0.0);
+        return out;
+    }
+    let base = t_src[0];
+    let mut j = 0usize;
+    for &td in t_dst {
+        let t = base + td as f64;
+        while j + 1 < n && t_src[j + 1] <= t {
+            j += 1;
+        }
+        let k = if j + 1 < n && (t_src[j + 1] - t) < (t - t_src[j]) { j + 1 } else { j };
+        out.push(y_src[k]);
+    }
+    out
+}
+
 /// Find intervals where consecutive source timestamps are more than
 /// `max_dt_mult × nominal_dt` apart.
 pub fn find_gaps(t_src: &[f64], nominal_dt: f64, max_dt_mult: f64) -> Gaps {
@@ -75,6 +99,15 @@ mod tests {
         for (a, b) in out.iter().zip(&y) {
             assert!((a - b).abs() < 1e-4);
         }
+    }
+
+    #[test]
+    fn nearest_keeps_discrete_values() {
+        let t = vec![0.0, 0.001, 0.002, 0.003];
+        let y = vec![-1.0, 0.0, 0.0, 2.0];
+        let grid = vec![0.0, 0.0004, 0.0006, 0.0026, 0.003, 0.01];
+        let out = interp_nearest(&t, &y, &grid);
+        assert_eq!(out, vec![-1.0, -1.0, 0.0, 2.0, 2.0, 2.0]);
     }
 
     #[test]

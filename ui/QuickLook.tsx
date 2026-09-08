@@ -7,8 +7,10 @@ import { StepControls } from "./wizard/steps";
 import SpectrumChart from "./charts/SpectrumChart";
 import SpectrogramCanvas from "./charts/SpectrogramCanvas";
 import AnomalyList, { anomalySummary } from "./wizard/AnomalyList";
+import BodeChart from "./charts/BodeChart";
+import FrMetricsTable from "./charts/FrMetricsTable";
 
-type Tab = "step" | "spectrum" | "spectrogram" | "recs" | "anomalies";
+type Tab = "step" | "freq" | "spectrum" | "spectrogram" | "recs" | "anomalies";
 
 export default function QuickLook() {
   const s = useStore();
@@ -90,9 +92,9 @@ export default function QuickLook() {
       </header>
 
       <nav className="tabs">
-        {(["step", "spectrum", "spectrogram", "recs", "anomalies"] as Tab[]).map((t) => (
-          <button key={t} className={`${tab === t ? "active" : ""} ${t === "anomalies" && b?.anomalies.some((a) => a.severity === "critical") ? "warn" : ""}`} onClick={() => setTab(t)} disabled={!b}>
-            {t === "step" ? "Step Response" : t === "spectrum" ? "Full Spectrum" : t === "spectrogram" ? "Throttle Spectrogram" : t === "recs" ? `Recommendations (${s.recs.length})` : `Anomalies${b && b.anomalies.length ? ` (${anomalySummary(b.anomalies)})` : ""}`}
+        {(["step", "freq", "spectrum", "spectrogram", "recs", "anomalies"] as Tab[]).map((t) => (
+          <button key={t} className={`${tab === t ? "active" : ""} ${t === "anomalies" && b?.anomalies.some((a) => a.severity === "critical") ? "warn" : ""}`} onClick={() => setTab(t)} disabled={!b || (t === "freq" && !(b.freq_resp?.length))}>
+            {t === "step" ? "Step Response" : t === "freq" ? `Frequency response${b?.freq_resp?.length ? "" : " (no CHIRP)"}` : t === "spectrum" ? "Full Spectrum" : t === "spectrogram" ? "Throttle Spectrogram" : t === "recs" ? `Recommendations (${s.recs.length})` : `Anomalies${b && b.anomalies.length ? ` (${anomalySummary(b.anomalies)})` : ""}`}
           </button>
         ))}
       </nav>
@@ -103,6 +105,15 @@ export default function QuickLook() {
           <div className="notice bad">Critical anomalies found ({anomalySummary(b.anomalies)}) — see the Anomalies tab.</div>
         )}
         {b && tab === "anomalies" && <AnomalyList list={b.anomalies} />}
+        {b && tab === "freq" && (
+          <>
+            <p className="muted">Closed-loop response setpoint → gyro from the CHIRP sweeps. Orange solid = |H|, dashed = open loop |L|, grey = sensitivity. The dashed markers are the −3 dB bandwidth (orange) and the gain crossover (green). Coherence below 0.5 means the gyro did not follow the sweep there.</p>
+            <FrMetricsTable list={b.freq_resp} />
+            {b.freq_resp.map((fr) => (
+              <div key={fr.axis} data-report={`Frequency response ${fr.axis}`}><BodeChart fr={fr} /></div>
+            ))}
+          </>
+        )}
         {b && tab === "step" && (
           <section>
             <h2>Step Response Functions</h2>

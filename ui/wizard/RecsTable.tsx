@@ -59,6 +59,7 @@ export default function RecsTable({ phase, recs, editable }: { phase: ApplyPhase
                 <span className="evidence" key={i}>
                   {e.kind === "peak" && ` · ${e.axis} ${e.f_hz.toFixed(0)} Hz ${e.psd_db.toFixed(0)} dB`}
                   {e.kind === "step" && ` · ${e.axis} overshoot ${e.overshoot.toFixed(2)} / ${e.latency_ms.toFixed(0)} ms`}
+                  {e.kind === "freq_resp" && ` · ${e.axis} chirp: bw ${Number.isFinite(e.bandwidth_hz) ? e.bandwidth_hz.toFixed(0) : "—"} Hz, PM ${Number.isFinite(e.phase_margin_deg) ? e.phase_margin_deg.toFixed(0) : "—"}°, γ² ${e.coherence.toFixed(2)}`}
                 </span>
               ))}
             </td>

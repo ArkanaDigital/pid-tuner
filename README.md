@@ -51,6 +51,18 @@ Sessions are stored under `~/Library/Application Support/com.arkana.pidtuner/ses
 
 Logging: ≥ 2 kHz blackbox rate; unfiltered gyro (native on BF ≥ 4.4, `debug_mode = GYRO_SCALED` on 4.3).
 
+## Betaflight CHIRP (frequency response)
+
+Betaflight 2025.12+/2026.6 can inject a frequency sweep into the rate setpoint (custom build define
+`USE_CHIRP`, aux mode `CHIRP`, `debug_mode = CHIRP`, defaults 0.2 → 600 Hz over 20 s, one axis per
+activation). Import such a log as Flight B: the app locates the sweeps (BOXCHIRP flag + `debug[1]`),
+computes the closed-loop response setpoint → gyro with Welch cross-spectra (port of the Configurator
+Autotune tab, plus detrending), and shows |H|, open loop |L| = H/(1−H), sensitivity, phase, coherence,
+bandwidth, phase margin, resonant peak, loop delay and a 100 ms step. Recommendations only when mean
+coherence ≥ 0.6 and ≥ 8 windows per axis, limited to P/I/FF (or the Simplified PI/I/FF sliders) within
+×0.75–1.25 per iteration; D and every filter stay untouched (Configurator issue #5258). Sweeps flown in
+ANGLE/HORIZON are flagged and not used for roll/pitch recommendations.
+
 ## ArduPilot Copter
 
 Requirements (Preflight writes and verifies them, `INS_LOG_BAT_MASK` reboots the FC):

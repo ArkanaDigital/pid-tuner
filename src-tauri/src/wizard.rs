@@ -200,6 +200,16 @@ pub fn fc_status(state: State<'_, AppState>) -> R<FcStatus> {
     Ok(state.fc.lock().unwrap().clone())
 }
 
+/// Flight protocol text for the session's firmware (falls back to Betaflight).
+#[tauri::command]
+pub fn flight_protocol(state: State<'_, AppState>, which: Flight) -> R<session::protocol::Protocol> {
+    let fw = {
+        let g = state.engine.lock().unwrap();
+        g.as_ref().and_then(|e| e.session.firmware.clone()).or_else(|| state.fc.lock().unwrap().firmware.clone())
+    };
+    Ok(session::protocol::text(fw.as_ref(), which))
+}
+
 #[tauri::command]
 pub fn wizard_pid_strategy(state: State<'_, AppState>, strategy: PidStrategy) -> R<SessionSnapshot> {
     with_engine(&state, |e, fc| {

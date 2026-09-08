@@ -17,7 +17,10 @@ Filenames were renamed to `<fw>_<version>_<board/desc>.<ext>`; content is byte-i
 | `bf_2025.12.1_speedybeef405aio_btfl_001.bbl` | Betaflight 2025.12.1 (85d201376) STM32F405 | SPBE SPEEDYBEEF405AIO / - | 1,382,400 B (1.4 MB) | 125 / 2 / 0 | 1 | https://raw.githubusercontent.com/Samma3ll/fpv-manager/main/btfl_001_clean.bbl | Samma3ll/fpv-manager (no license file) - sample `btfl_001_clean.bbl` |
 | `bf_2025.12.2_speedybeef7v3_steadyhover.BFL` | Betaflight 2025.12.2 (79065c96b) STM32F7X2 | SPBE SPEEDYBEEF7V3 / Mario 5 | 5,720,820 B (5.7 MB) | 312 / 1 / 16 | 1 | https://raw.githubusercontent.com/PedroS235/blackbird/main/tests/fixtures/new202612_BF_steadyhover.BFL | PedroS235/blackbird (MIT) - test fixture `tests/fixtures/new202612_BF_steadyhover.BFL` |
 
+| `bf_2025.12_chirp_gyro_angle.TXT` | Betaflight 2026.6.0-alpha (8c8523411) STM32F7X2 | SPBE / OvershootExpress | 27,475,498 B (26.2 MB) | 125 / 2 / 97 (`CHIRP` in 2025.12 numbering) | 1 | https://raw.githubusercontent.com/pichim/bf_controller_tuning/main/logs/example_logs/Gyro_Angle.TXT | pichim/bf_controller_tuning (GPL-3.0) - `logs/example_logs/Gyro_Angle.TXT`. CHIRP sweeps 0.2→600 Hz, 20 s, high-resolution logging, `P interval 2` (2 kHz). Whole flight in ANGLE mode: roll/pitch sweeps include the attitude loop, yaw is a pure rate loop. |
+
 Notes:
+- `bf_2025.12_chirp_gyro_angle.TXT`: the only CHIRP log found; used by `crates/analysis` golden-style tests for segment detection and yaw metrics.
 - `bf_2025.12.2_speedybeef7v3_steadyhover.BFL` is described by its source repo as a steady-hover flight.
 - `bf_4.3.0_matekf405_LOG00001.BFL` is the only 4.3.x log found; 6.9 MB.
 - `bf_4.4.3_furyf4osd_btfl_002.bbl` is small (200 KB) - it was the only Betaflight 4.4.x log found on GitHub. A sibling `btfl_001.bbl` (150 KB, same firmware) exists in the same repo.

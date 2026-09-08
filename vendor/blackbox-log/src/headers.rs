@@ -96,6 +96,7 @@ pub struct Headers<'data> {
     craft_name: Option<&'data str>,
 
     debug_mode: DebugMode,
+    debug_mode_raw: Option<u32>,
     disabled_fields: DisabledFields,
     features: FeatureSet,
     pwm_protocol: PwmProtocol,
@@ -294,6 +295,11 @@ impl<'data> Headers<'data> {
         self.debug_mode
     }
 
+    /// Raw `debug_mode` header value, if the header was present (patch 5).
+    pub fn debug_mode_raw(&self) -> Option<u32> {
+        self.debug_mode_raw
+    }
+
     #[inline]
     pub fn disabled_fields(&self) -> DisabledFields {
         self.disabled_fields
@@ -412,7 +418,10 @@ impl FirmwareVersion {
 
         let major: u16 = components.next()?.parse().ok()?;
         let minor: u8 = components.next()?.parse().ok()?;
-        let patch: u8 = components.next()?.parse().ok()?;
+        // Patch 5: pre-release suffixes ("2026.6.0-alpha", "4.5.0-rc1") are ignored.
+        let patch_str = components.next()?;
+        let patch_str = patch_str.split(['-', '+']).next().unwrap_or(patch_str);
+        let patch: u8 = patch_str.parse().ok()?;
 
         Some(Self {
             major,
@@ -525,6 +534,7 @@ impl MotorOutputRange {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)] // patch 5: header/raw kept for diagnostics
 struct RawHeaderValue<'data, T> {
     header: &'data str,
     raw: &'data str,
@@ -532,6 +542,7 @@ struct RawHeaderValue<'data, T> {
 }
 
 impl<T> RawHeaderValue<'_, T> {
+    #[allow(dead_code)]
     fn invalid_header_error(&self) -> ParseError {
         ParseError::InvalidHeader {
             header: self.header.to_owned(),
@@ -707,18 +718,25 @@ impl<'data> State<'data> {
             board_info: self.board_info.map(str::trim).filter(not_empty),
             craft_name: self.craft_name.map(str::trim).filter(not_empty),
 
-            debug_mode: self.debug_mode.map_or(Ok(DebugMode::None), |raw| {
-                DebugMode::new(raw.value, internal_firmware)
-                    .ok_or_else(|| raw.invalid_header_error())
-            })?,
+            // Patch 5: newer firmware adds debug modes the generated table does not
+            // know; keep the raw id instead of rejecting the whole log.
+            debug_mode: self.debug_mode.as_ref().map_or(DebugMode::None, |raw| {
+                DebugMode::new(raw.value, internal_firmware).unwrap_or_else(|| {
+                    tracing::warn!("unknown debug_mode {}, keeping raw id", raw.value);
+                    DebugMode::Unknown(raw.value)
+                })
+            }),
+            debug_mode_raw: self.debug_mode.as_ref().map(|raw| raw.value),
             disabled_fields: DisabledFields::new(self.disabled_fields, internal_firmware),
             features: FeatureSet::new(self.features, internal_firmware),
             pwm_protocol: self
                 .pwm_protocol
                 .ok_or(ParseError::MissingHeader)
-                .and_then(|raw| {
-                    PwmProtocol::new(raw.value, internal_firmware)
-                        .ok_or_else(|| raw.invalid_header_error())
+                .map(|raw| {
+                    PwmProtocol::new(raw.value, internal_firmware).unwrap_or_else(|| {
+                        tracing::warn!("unknown motor_pwm_protocol {}, keeping raw id", raw.value);
+                        PwmProtocol::Unknown(raw.value)
+                    })
                 })?,
 
             vbat_reference: self.vbat_reference,

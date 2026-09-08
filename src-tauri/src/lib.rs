@@ -56,6 +56,7 @@ pub fn run() {
             wizard::report_export,
             wizard::session_notes,
             wizard::wizard_pid_strategy,
+            wizard::flight_protocol,
             wizard::save_text_file,
             fc::fc_ports,
             fc::fc_connect,

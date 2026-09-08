@@ -251,11 +251,48 @@ fn anomaly_guard(r: &FlightRecord) -> GuardOutcome {
     )
 }
 
+/// ours: a CHIRP axis counts as measured when the Welch estimate is well supported.
+const CHIRP_MIN_WINDOWS: usize = 8;
+const CHIRP_MIN_COHERENCE: f32 = 0.6;
+
+fn chirp_axis_ok(r: &FlightRecord, k: usize) -> bool {
+    r.quality.chirp_windows_per_axis[k] >= CHIRP_MIN_WINDOWS && r.quality.chirp_coherence_per_axis[k] >= CHIRP_MIN_COHERENCE
+}
+
+/// Betaflight CHIRP sweeps: passes trivially without chirp data; with it, every
+/// swept axis needs ≥ 8 windows and mean coherence (5–100 Hz) ≥ 0.6.
+fn chirp_quality_guard(r: &FlightRecord) -> GuardOutcome {
+    let w = r.quality.chirp_windows_per_axis;
+    if w.iter().all(|x| *x == 0) {
+        return pass();
+    }
+    let mut problems = Vec::new();
+    for (k, name) in [(0, "roll"), (1, "pitch"), (2, "yaw")] {
+        if w[k] == 0 {
+            continue;
+        }
+        if !chirp_axis_ok(r, k) {
+            problems.push(format!("{name}: {} windows, coherence {:.2} (need ≥ {CHIRP_MIN_WINDOWS} and ≥ {CHIRP_MIN_COHERENCE})", w[k], r.quality.chirp_coherence_per_axis[k]));
+        }
+    }
+    if problems.is_empty() {
+        pass()
+    } else {
+        fail(
+            problems.join("; "),
+            Some("Low coherence means the gyro did not follow the sweep: fly in ACRO (not ANGLE), calmer air, raise chirp_amplitude_* (default 230/230/180 °/s) or chirp_time_seconds, and repeat the axis cycle twice."),
+        )
+    }
+}
+
 fn steps_guard(r: &FlightRecord) -> GuardOutcome {
     let s = r.quality.step_segments_per_axis;
     let ms = r.quality.max_setpoint_per_axis;
     let mut problems = Vec::new();
     for (k, name, need) in [(0, "roll", 30usize), (1, "pitch", 30), (2, "yaw", 10)] {
+        if chirp_axis_ok(r, k) {
+            continue; // measured by a CHIRP sweep instead of stick steps
+        }
         if s[k] < need {
             let why = if ms[k] < 150.0 {
                 format!("{name}: only {} usable segments — stick input too small (max {:.0} °/s)", s[k], ms[k])
@@ -601,6 +638,7 @@ fn defs(step: Step) -> Vec<GuardDef> {
             g!("ap_pid_rate", "PIDx logged at loop rate", true, Fw::Ap, |c| record(c, Flight::B).map(ap_pid_rate_guard).unwrap_or_else(|| action("Import first."))),
             g!("duration", "≥ 30 s of data", true, |c| record(c, Flight::B).map(|r| duration_guard(r, 30.0)).unwrap_or_else(|| action("Import first."))),
             g!("steps", "Enough stick steps per axis", true, Fw::Bf, |c| record(c, Flight::B).map(steps_guard).unwrap_or_else(|| action("Import first."))),
+            g!("chirp_quality", "CHIRP sweeps coherent (≥ 8 windows, γ² ≥ 0.6 per axis)", true, Fw::Bf, |c| record(c, Flight::B).map(chirp_quality_guard).unwrap_or_else(|| action("Import first."))),
             g!("ap_steps", "Enough stick steps per axis", true, Fw::Ap, |c| record(c, Flight::B).map(ap_steps_guard).unwrap_or_else(|| action("Import first."))),
             g!("saturation", "Motor saturation < 5 %", true, |c| record(c, Flight::B).map(saturation_guard).unwrap_or_else(|| action("Import first."))),
             g!("ap_saturation", "Mixer output not saturated", true, Fw::Ap, |c| record(c, Flight::B).map(ap_saturation_guard).unwrap_or_else(|| action("Import first."))),
@@ -617,6 +655,7 @@ fn defs(step: Step) -> Vec<GuardDef> {
             g!("anomalies", "No critical anomalies (desync, spin, reversed control…)", true, |c| record(c, Flight::C).map(anomaly_guard).unwrap_or_else(|| action("Import first."))),
             g!("ap_pid_rate", "PIDx logged at loop rate", true, Fw::Ap, |c| record(c, Flight::C).map(ap_pid_rate_guard).unwrap_or_else(|| action("Import first."))),
             g!("steps", "Enough stick steps per axis", true, Fw::Bf, |c| record(c, Flight::C).map(steps_guard).unwrap_or_else(|| action("Import first."))),
+            g!("chirp_quality", "CHIRP sweeps coherent (≥ 8 windows, γ² ≥ 0.6 per axis)", true, Fw::Bf, |c| record(c, Flight::C).map(chirp_quality_guard).unwrap_or_else(|| action("Import first."))),
             g!("ap_steps", "Enough stick steps per axis", true, Fw::Ap, |c| record(c, Flight::C).map(ap_steps_guard).unwrap_or_else(|| action("Import first."))),
             g!("tune_match", "Log flown with the applied PIDs", true, |c| tune_matches(c, Flight::C, Some(ApplyPhase::Pids))),
             g!("autotune_result", "AUTOTUNE changed the rate gains", true, Fw::Ap, autotune_result),

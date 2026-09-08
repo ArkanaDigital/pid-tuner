@@ -103,6 +103,20 @@ fn main() -> Result<()> {
                     p.band
                 );
             }
+            if !bundle.freq_resp.is_empty() {
+                println!("Frequency response (CHIRP):");
+                for fr in &bundle.freq_resp {
+                    let m = &fr.metrics;
+                    println!(
+                        "  {:<5}{} sweeps={} windows={} coh={:.2} | bw={:.1} Hz crossover={:.1} Hz PM={:.1}° (max {:.1}°) | Mr={:+.1} dB @{:.0} Hz | delay={:.2} ms | LFerr={:+.2} dB | Speak={:+.1} dB @{:.0} Hz | step os={:.3} rise={:.1} ms",
+                        fr.axis.name(), if fr.angle_mode { " [ANGLE mode: attitude loop included]" } else { "" }, fr.n_sweeps, fr.n_windows, m.coherence_mean, m.bandwidth_hz, m.crossover_hz, m.phase_margin_deg, m.max_phase_margin_deg,
+                        m.resonant_peak_db, m.resonant_peak_hz, m.loop_delay_ms, m.low_freq_err_db, m.sens_peak_db, m.sens_peak_hz, m.step_overshoot, m.step_rise_ms
+                    );
+                    for t in &m.targets {
+                        println!("        target PM {:>5.1}°: crossover {:.1} Hz, gain ×{:.2}, sens-limit gain ×{:.2}", t.pm_deg, t.crossover_hz, t.gain_to_target, t.gain_for_sens_limit);
+                    }
+                }
+            }
             if !bundle.anomalies.is_empty() {
                 println!("Anomalies:");
                 for a in &bundle.anomalies {
@@ -144,6 +158,14 @@ fn print_log_summary(log: &domain::FlightLog) {
         let mut r: Vec<String> = log.meta.msg_rates_hz.iter().map(|(k, v)| format!("{k}={v:.0}")).collect();
         r.sort();
         println!("  msg rates Hz: {} | gyro_hr tracks: {} ({} batches)", r.join(" "), log.gyro_hr.len(), log.gyro_hr.iter().map(|t| t.batches.len()).sum::<usize>());
+    }
+    if let Some(c) = &log.chirp {
+        if let Some(cfg) = &c.config {
+            println!("  chirp: {:.1}→{:.0} Hz over {:.0} s, amplitude {:?} °/s, lag {:.0} Hz lead {:.0} Hz, debug signature {}", cfg.f_start_hz, cfg.f_end_hz, cfg.time_s, cfg.amplitude, cfg.lag_freq_hz, cfg.lead_freq_hz, c.debug_is_chirp);
+        }
+        for s in &c.segments {
+            println!("    {:<5} {:7.1}–{:7.1} s  {:6} samples  f {:.1}→{:.0} Hz  gate {:?}{}", s.axis.name(), s.t0_s, s.t1_s, s.i1 - s.i0, s.f_start_hz, s.f_end_hz, s.source, if s.angle_mode { "  ANGLE" } else { "" });
+        }
     }
     if let domain::Tune::Ap(t) = &log.tune_at_log {
         let g = |n: &str| t.get(n).map(|v| format!("{v}")).unwrap_or("-".into());

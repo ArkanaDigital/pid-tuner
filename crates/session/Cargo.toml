@@ -16,3 +16,5 @@ chrono = { version = "0.4", features = ["serde"] }
 tempfile = "3"
 ap-ingest = { workspace = true }
 analysis = { workspace = true }
+log-ingest = { workspace = true }
+recommend = { workspace = true }

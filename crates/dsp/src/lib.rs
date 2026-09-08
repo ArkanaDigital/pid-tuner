@@ -4,7 +4,9 @@
 //! - PIDtoolbox `PTstepcalc.m`, `PTSpec2d.m`, `PTthrSpec.m` (Brian White, via PIDscope)
 //! - PID-Analyzer `PID-Analyzer.py` (Florian Melsheimer)
 //! - ArduPilot WebTools `Libraries/fft.js`, `FilterReview.js`
+//! - Betaflight Configurator `src/js/blackbox/spectral_analysis.js` (chirp frequency response)
 
+pub mod cross;
 pub mod decimate;
 pub mod fft;
 pub mod filters;
@@ -13,7 +15,7 @@ pub mod welch;
 pub mod wiener;
 pub mod window;
 
-pub use num_complex::Complex32;
+pub use num_complex::{Complex32, Complex64};
 
 pub const PI: f32 = std::f32::consts::PI;
 pub const TAU: f32 = std::f32::consts::TAU;

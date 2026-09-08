@@ -6,6 +6,7 @@
 pub mod ap;
 pub mod ap_param_meta;
 pub mod bf;
+pub mod bf_chirp;
 
 use domain::{AnalysisBundle, Recommendation, Tune};
 

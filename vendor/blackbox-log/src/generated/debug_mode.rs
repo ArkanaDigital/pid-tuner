@@ -3,6 +3,8 @@
 /// The configured debugging info for a log.
 #[non_exhaustive]
 pub enum DebugMode {
+    /// Raw id not in the generated table (newer firmware). Patch 5.
+    Unknown(u32),
     /// `AC_CORRECTION`
     AcCorrection,
     /// `AC_ERROR`
@@ -264,6 +266,7 @@ pub enum DebugMode {
 impl crate::units::Flag for DebugMode {
     fn as_name(&self) -> &'static str {
         match self {
+            Self::Unknown(_) => "UNKNOWN",
             Self::AcCorrection => "AC_CORRECTION",
             Self::AcError => "AC_ERROR",
             Self::Acc => "ACC",

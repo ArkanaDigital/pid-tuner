@@ -446,5 +446,8 @@ pub fn ingest(bytes: &[u8], _session: usize, opts: &IngestOpts) -> Result<Flight
         },
         tune_at_log: Tune::Ap(tune),
         gyro_hr,
+        debug: Vec::new(),
+        chirp: None,
+            flight_mode_flags: vec![],
     })
 }

@@ -121,6 +121,17 @@ pub enum PidStrategy {
     Autotune,
 }
 
+/// Where the PID-phase measurement of Flight B comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PidSource {
+    /// Stick-step Wiener deconvolution (default).
+    #[default]
+    StepResponse,
+    /// Betaflight CHIRP sweeps → closed-loop frequency response.
+    Chirp,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ApplyPhase {
@@ -204,6 +215,8 @@ pub struct Session {
     pub report_file: Option<String>,
     #[serde(default)]
     pub pid_strategy: PidStrategy,
+    #[serde(default)]
+    pub pid_source: PidSource,
 }
 
 impl Session {
@@ -243,6 +256,7 @@ impl Session {
             notes: String::new(),
             report_file: None,
             pid_strategy: PidStrategy::default(),
+            pid_source: PidSource::default(),
         }
     }
 

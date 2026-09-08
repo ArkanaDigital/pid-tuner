@@ -46,6 +46,20 @@ pub fn render(s: &Session, bundles: &[(Flight, AnalysisBundle)], images: &[Repor
     }
     h.push_str("</table>");
 
+    if bundles.iter().any(|(_, b)| !b.freq_resp.is_empty()) {
+        h.push_str("<h2>Frequency response (CHIRP)</h2><table><tr><th>Flight</th><th>Axis</th><th>Sweeps / windows</th><th>Coherence</th><th>Bandwidth</th><th>Crossover</th><th>Phase margin</th><th>Resonant peak</th><th>Loop delay</th><th>Sensitivity peak</th></tr>");
+        for (f, b) in bundles {
+            for fr in &b.freq_resp {
+                let m = &fr.metrics;
+                h.push_str(&format!(
+                    "<tr><td>{f:?}</td><td>{}{}</td><td>{} / {}</td><td>{:.2}</td><td>{:.1} Hz</td><td>{:.1} Hz</td><td>{:.0}°</td><td>{:+.1} dB @ {:.0} Hz</td><td>{:.2} ms</td><td>{:+.1} dB</td></tr>",
+                    fr.axis.name(), if fr.angle_mode { " (ANGLE mode)" } else { "" }, fr.n_sweeps, fr.n_windows, m.coherence_mean, m.bandwidth_hz, m.crossover_hz, m.phase_margin_deg, m.resonant_peak_db, m.resonant_peak_hz, m.loop_delay_ms, m.sens_peak_db
+                ));
+            }
+        }
+        h.push_str("</table>");
+    }
+
     if bundles.iter().any(|(_, b)| !b.anomalies.is_empty()) {
         h.push_str("<h2>Anomalies</h2><table><tr><th>Flight</th><th>Severity</th><th>Type</th><th>Time</th><th>Detail</th></tr>");
         for (f, b) in bundles {

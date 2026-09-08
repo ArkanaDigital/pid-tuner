@@ -1,82 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, pickLogFile, saveTextAs } from "../lib/api";
 import { run, useStore } from "../lib/store";
-import { AXES, STEP_FLIGHT, isArduPilot, type AnalysisBundle, type ApplyPhase, type Flight, type PidStrategy, type SessionSnapshot, type Step } from "../lib/types";
+import { AXES, STEP_FLIGHT, isArduPilot, type AnalysisBundle, type ApplyPhase, type Flight, type PidStrategy, type Protocol, type SessionSnapshot, type Step } from "../lib/types";
+import BodeChart from "../charts/BodeChart";
+import FrMetricsTable from "../charts/FrMetricsTable";
 import StepResponseChart from "../charts/StepResponseChart";
 import SpectrumChart from "../charts/SpectrumChart";
 import SpectrogramCanvas from "../charts/SpectrogramCanvas";
 import RecsTable, { paramText } from "./RecsTable";
 import { ConnectStep, DownloadFromFlash, FcApplyButton, PreflightStep } from "./fcsteps";
 import AnomalyList from "./AnomalyList";
-
-type Protocol = { title: string; steps: string[]; note: string };
-
-/** ArduPilot Copter protocol: AltHold hover for the spectra, Stabilize stick steps for the step response. */
-const AP_FLIGHT_PROTOCOL: Record<Flight, Protocol> = {
-  a: {
-    title: "Flight A — noise / filter data (ArduCopter)",
-    steps: [
-      "Props on, battery fresh, GPS not required. Arm in AltHold (or Loiter) in a safe open area.",
-      "Hover steadily for 30 seconds at hover throttle (stick centred). No pitch/roll input.",
-      "Then 20 seconds of gentle rocking (small roll/pitch, throttle 30–70 %) so the spectrogram covers a throttle range.",
-      "Land, disarm. Wait ~5 s before power-off so the .bin log is closed.",
-    ],
-    note: "Needs LOG_BITMASK bits 0+12+19 and the IMU batch sampler (INS_LOG_BAT_MASK=1, INS_LOG_BAT_OPT=4) — Preflight sets them. The gyro spectrum comes from ISBH/ISBD batches; ≥ 20 batches are required.",
-  },
-  b: {
-    title: "Flight B — step response data (ArduCopter)",
-    steps: [
-      "Take off in Stabilize (rate response is what we measure; AltHold/Loiter add position loops). Hover 5 s.",
-      "Roll: sharp stick snap left, hold ½ s, centre, pause 1 s. Repeat right. Do 15 pairs.",
-      "Pitch: same pattern forward / back, 15 pairs.",
-      "Yaw: same pattern, 5 pairs.",
-      "One axis at a time. Land and disarm.",
-    ],
-    note: "ATC_INPUT_TC shapes the pilot input, so the target seen by the rate loop (PIDx.Tar) is already filtered — snaps ≥ 60 °/s on roll/pitch, ≥ 40 °/s on yaw are still needed. ≥ 30 segments per axis for a trustworthy curve.",
-  },
-  c: {
-    title: "Flight C — verification (ArduCopter)",
-    steps: [
-      "Heuristic path: fly the same Stabilize protocol as Flight B with the new gains.",
-      "AUTOTUNE path: fly AUTOTUNE (AUTOTUNE_AXES / AUTOTUNE_AGGR as set), let it finish, land and disarm WITHOUT touching the sticks so the gains are saved — then fly the Flight B protocol once more.",
-      "Land and disarm.",
-    ],
-    note: "The Import C guard checks ATC_RAT_*_P/D actually changed and D did not end at AUTOTUNE_MIN_D (a failed autotune).",
-  },
-};
-
-const FLIGHT_PROTOCOL: Record<Flight, Protocol> = {
-  a: {
-    title: "Flight A — noise / filter data",
-    steps: [
-      "Props on, battery fresh, arm in a safe open area (or over a bed indoors for a tiny whoop).",
-      "Hover steadily for 30 seconds at normal hover throttle. No stick input.",
-      "Then hover with gentle wobbles for 20 seconds (small roll/pitch rocking, throttle 30–70 %).",
-      "Land, disarm. Do not power off before the log is saved.",
-    ],
-    note: "This flight only needs to be smooth. The spectrum analysis needs ≥ 20 s of clean hover and a spread of throttle values.",
-  },
-  b: {
-    title: "Flight B — step response data",
-    steps: [
-      "Take off and hover for 5 seconds.",
-      "Roll: sharp stick snap left, hold ½ s, centre, pause 1 s. Repeat right. Do 5 pairs.",
-      "Pitch: same pattern forward / back, 5 pairs.",
-      "Yaw: same pattern, 3 pairs.",
-      "Keep axes separate — one axis moving at a time. Land and disarm.",
-    ],
-    note: "Sharp, isolated stick moves ≥ 200 °/s on each axis give the deconvolution what it needs.",
-  },
-  c: {
-    title: "Flight C — verification",
-    steps: [
-      "Fly the same protocol as Flight B with the new PIDs.",
-      "Optionally add a few flips/rolls and throttle punches.",
-      "Land and disarm.",
-    ],
-    note: "This log becomes the 'after' in the before/after comparison and the report.",
-  },
-};
 
 function flightOf(step: Step): Flight {
   return STEP_FLIGHT[step]!;
@@ -114,9 +47,13 @@ export function StepPanel({ snap }: { snap: SessionSnapshot }) {
 
 function FlightStep({ snap, which }: { snap: SessionSnapshot; which: Flight }) {
   const s = useStore();
-  const ap = isArduPilot(snap.session.firmware ?? s.fc?.firmware);
-  const p = (ap ? AP_FLIGHT_PROTOCOL : FLIGHT_PROTOCOL)[which];
+  const [p, setP] = useState<Protocol | null>(null);
+  const fwKey = JSON.stringify(snap.session.firmware ?? s.fc?.firmware ?? null);
+  useEffect(() => {
+    api.flightProtocol(which).then(setP).catch(() => setP(null));
+  }, [which, fwKey]);
   const done = !!snap.session.flight_done[which];
+  if (!p) return <div className="panel"><div className="empty">Loading protocol…</div></div>;
   async function toggle() {
     const n = await run("Saving…", () => api.flightDone(which, !done));
     if (n) s.set({ snap: n });
@@ -128,6 +65,13 @@ function FlightStep({ snap, which }: { snap: SessionSnapshot; which: Flight }) {
         {p.steps.map((x, i) => <li key={i}>{x}</li>)}
       </ol>
       <p className="muted">{p.note}</p>
+      {p.alternative && (
+        <details className="alt-protocol">
+          <summary>{p.alternative.title}</summary>
+          <ol className="protocol">{p.alternative.steps.map((x, i) => <li key={i}>{x}</li>)}</ol>
+          <p className="muted">{p.alternative.note}</p>
+        </details>
+      )}
       <label className="check">
         <input type="checkbox" checked={done} onChange={toggle} /> Flight done — landed and disarmed
       </label>
@@ -185,7 +129,7 @@ function ImportStep({ snap, which }: { snap: SessionSnapshot; which: Flight }) {
       {rec && rec.warnings.length > 0 && <div className="notice">{rec.warnings.join(" · ")}</div>}
       {bundle && <AnomalyList list={bundle.anomalies} compact />}
       {bundle && which === "a" && <SpectrumPreview bundle={bundle} />}
-      {bundle && which !== "a" && <StepPreview bundle={bundle} />}
+      {bundle && which !== "a" && (bundle.freq_resp?.length ? <FreqPreview bundle={bundle} /> : <StepPreview bundle={bundle} />)}
     </div>
   );
 }
@@ -251,11 +195,25 @@ function StepPreview({ bundle, compare }: { bundle: AnalysisBundle; compare?: An
   );
 }
 
+function FreqPreview({ bundle, compare }: { bundle: AnalysisBundle; compare?: AnalysisBundle }) {
+  return (
+    <>
+      <FrMetricsTable list={bundle.freq_resp} before={compare?.freq_resp} />
+      {bundle.freq_resp.map((fr) => (
+        <div key={fr.axis} data-report={`Frequency response ${fr.axis}`}>
+          <BodeChart fr={fr} compare={compare?.freq_resp.find((x) => x.axis === fr.axis) ?? null} />
+        </div>
+      ))}
+    </>
+  );
+}
+
 function AnalysisStep({ snap, which, phase }: { snap: SessionSnapshot; which: Flight; phase: ApplyPhase }) {
   const s = useStore();
   const bundle = s.bundles[which];
   const recs = phase === "filters" ? snap.session.recs_filters : snap.session.recs_pids;
-  const [tab, setTab] = useState<"charts" | "spectrogram">("charts");
+  const hasChirp = !!bundle?.freq_resp?.length;
+  const [tab, setTab] = useState<"charts" | "spectrogram" | "freq">(phase === "pids" && snap.session.pid_source === "chirp" ? "freq" : "charts");
   if (!bundle) return <div className="panel"><div className="empty">Analysis not available — go back and import the log.</div></div>;
   return (
     <div className="panel">
@@ -271,11 +229,18 @@ function AnalysisStep({ snap, which, phase }: { snap: SessionSnapshot; which: Fl
           <button className={tab === "spectrogram" ? "active" : ""} onClick={() => setTab("spectrogram")}>Throttle spectrogram</button>
         </nav>
       )}
+      {phase === "pids" && hasChirp && (
+        <nav className="subtabs">
+          <button className={tab === "freq" ? "active" : ""} onClick={() => setTab("freq")}>Frequency response (CHIRP)</button>
+          <button className={tab === "charts" ? "active" : ""} onClick={() => setTab("charts")}>Step response</button>
+        </nav>
+      )}
       {phase === "filters" && tab === "charts" && <SpectrumPreview bundle={bundle} />}
       {phase === "filters" && tab === "spectrogram" && bundle.spectrograms.map((sg) => (
         <div className="chart-card" key={sg.axis} data-report={`Throttle spectrogram ${sg.axis}`}><SpectrogramCanvas sg={sg} height={220} /></div>
       ))}
-      {phase === "pids" && <StepPreview bundle={bundle} />}
+      {phase === "pids" && tab === "freq" && hasChirp && <FreqPreview bundle={bundle} />}
+      {phase === "pids" && tab !== "freq" && <StepPreview bundle={bundle} />}
       <h3>Suggested changes</h3>
       <RecsTable phase={phase} recs={recs} editable />
     </div>
@@ -367,6 +332,7 @@ function CompareStep() {
     <div className="panel">
       <h2>Before / after</h2>
       <p className="muted">Blue = before (Flight B), orange = after (Flight C).</p>
+      {after.freq_resp?.length ? <FreqPreview bundle={after} compare={before} /> : null}
       <StepPreview bundle={after} compare={before} />
       <table className="recs">
         <thead><tr><th>Axis</th><th>Overshoot before → after</th><th>Latency before → after</th><th>Steady state before → after</th></tr></thead>

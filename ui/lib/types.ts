@@ -65,6 +65,63 @@ export interface LogQuality {
   max_setpoint_per_axis: [number, number, number];
   step_segments_per_axis: [number, number, number];
   gap_seconds: number;
+  chirp_sweeps_per_axis?: [number, number, number];
+  chirp_windows_per_axis?: [number, number, number];
+  chirp_coherence_per_axis?: [number, number, number];
+}
+
+export interface FrTarget {
+  pm_deg: number;
+  crossover_hz: number | null;
+  gain_to_target: number | null;
+  gain_for_sens_limit: number | null;
+}
+
+export interface FrMetrics {
+  bandwidth_hz: number | null;
+  crossover_hz: number | null;
+  phase_margin_deg: number | null;
+  max_phase_margin_deg: number | null;
+  resonant_peak_db: number | null;
+  resonant_peak_hz: number | null;
+  loop_delay_ms: number | null;
+  low_freq_err_db: number | null;
+  coherence_mean: number | null;
+  noise_floor_hz: number | null;
+  sens_peak_db: number | null;
+  sens_peak_hz: number | null;
+  step_overshoot: number | null;
+  step_rise_ms: number | null;
+  step_settle_ms: number | null;
+  targets: FrTarget[];
+}
+
+/** Closed-loop frequency response of one axis from Betaflight CHIRP sweeps. */
+export interface FrequencyResponse {
+  axis: Axis;
+  angle_mode: boolean;
+  f_hz: number[];
+  h_mag_db: (number | null)[];
+  h_phase_deg: (number | null)[];
+  coherence: (number | null)[];
+  l_mag_db: (number | null)[];
+  l_phase_deg: (number | null)[];
+  s_mag_db: (number | null)[];
+  step_t_ms: number[];
+  step: number[];
+  fs_hz: number;
+  segment_size: number;
+  n_windows: number;
+  n_sweeps: number;
+  sweep_seconds: number;
+  metrics: FrMetrics;
+}
+
+export interface Protocol {
+  title: string;
+  steps: string[];
+  note: string;
+  alternative: { title: string; steps: string[]; note: string } | null;
 }
 
 export type AnomalyKind =
@@ -106,6 +163,7 @@ export interface AnalysisBundle {
   spectrograms: Spectrogram[];
   peaks: NoisePeak[];
   anomalies: Anomaly[];
+  freq_resp: FrequencyResponse[];
 }
 
 export type ParamValue =
@@ -120,7 +178,8 @@ export type EvidenceRef =
   | { kind: "peak"; axis: Axis; f_hz: number; psd_db: number }
   | { kind: "step"; axis: Axis; overshoot: number; latency_ms: number }
   | { kind: "quality"; field: string; value: number }
-  | { kind: "text"; note: string };
+  | { kind: "text"; note: string }
+  | { kind: "freq_resp"; axis: Axis; bandwidth_hz: number; phase_margin_deg: number; coherence: number };
 
 export interface Recommendation {
   id: string;
@@ -248,6 +307,7 @@ export interface Session {
   notes: string;
   report_file: string | null;
   pid_strategy?: PidStrategy;
+  pid_source?: "step_response" | "chirp";
 }
 
 export interface SessionSnapshot {

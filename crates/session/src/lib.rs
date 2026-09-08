@@ -7,6 +7,7 @@
 pub mod engine;
 pub mod guards;
 pub mod model;
+pub mod protocol;
 pub mod store;
 
 pub use engine::SessionEngine;

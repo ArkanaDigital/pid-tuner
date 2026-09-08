@@ -11,4 +11,10 @@ Upstream: https://github.com/blackbox-log/blackbox-log (MIT OR Apache-2.0).
 4. `src/filter.rs`: `Filter::apply` compared full field names against base names, so
    `OnlyFields(["gyroADC"])` never matched `gyroADC[0]`. Now compares base names.
 
+5. `src/generated/{debug_mode,pwm_protocol}.rs`, `src/headers.rs`: unknown `debug_mode` /
+   `motor_pwm_protocol` ids (Betaflight 2025.12+/2026.6 add e.g. `CHIRP` = 96/97 depending on
+   the tag) no longer fail header parsing; they map to `DebugMode::Unknown(raw)` /
+   `PwmProtocol::Unknown(raw)` and `Headers::debug_mode_raw()` exposes the id. `FirmwareVersion::parse` ignores a
+   pre-release suffix (`2026.6.0-alpha`).
+
 Re-verify these when bumping the upstream version.

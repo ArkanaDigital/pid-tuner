@@ -181,6 +181,9 @@ pub fn detect(log: &FlightLog, airborne: Option<(f32, f32)>, opts: &AnomalyOpts)
     }
 
     // ---- oscillation (0.5 s windows, hop 0.25 s) ------------------------------
+    // CHIRP sweeps excite the setpoint on purpose; windows inside a sweep are skipped.
+    let chirp_ranges: Vec<(usize, usize)> = log.chirp.as_ref().map(|c| c.segments.iter().map(|s| (s.i0, s.i1)).collect()).unwrap_or_default();
+    let in_chirp = |a: usize, b: usize| chirp_ranges.iter().any(|(x, y)| a < *y && b > *x);
     let win = ((0.5 * fs) as usize).max(16);
     let hop = win / 2;
     for (k, ax) in log.axes.iter().enumerate() {
@@ -191,6 +194,11 @@ pub fn detect(log: &FlightLog, airborne: Option<(f32, f32)>, opts: &AnomalyOpts)
         let mut w = 0;
         let mut s = i0;
         while s + win <= i1 {
+            if in_chirp(s, s + win) {
+                w += 1;
+                s += hop;
+                continue;
+            }
             let err: Vec<f32> = (s..s + win).map(|i| ax.gyro_filt[i] - ax.setpoint[i]).collect();
             let sp_rms = rms(&ax.setpoint[s..s + win]);
             let e_rms = rms(&err);
@@ -347,6 +355,9 @@ mod tests {
             meta: Default::default(),
             tune_at_log: Tune::Unknown,
             gyro_hr: vec![],
+            debug: vec![],
+            chirp: None,
+            flight_mode_flags: vec![],
         }
     }
 

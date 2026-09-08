@@ -121,6 +121,168 @@ pub struct FlightLog {
     /// IMU batch sampler): bursts of samples at their own rate.
     #[serde(default)]
     pub gyro_hr: Vec<RawGyroTrack>,
+    /// Betaflight `debug[k]` fields on the uniform grid (nearest sample), if logged.
+    #[serde(default)]
+    pub debug: Vec<Vec<f32>>,
+    /// Betaflight CHIRP system-identification sweeps found in the log.
+    #[serde(default)]
+    pub chirp: Option<ChirpInfo>,
+    /// Betaflight `flightModeFlags` (boxId bitmask from slow frames) per grid sample, if logged.
+    #[serde(default)]
+    pub flight_mode_flags: Vec<u32>,
+}
+
+// ---------------------------------------------------------------------------
+// Betaflight CHIRP (system identification)
+// ---------------------------------------------------------------------------
+
+/// `chirp_*` CLI settings (betaflight `pid.c` resetPidProfile defaults).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChirpConfig {
+    pub lag_freq_hz: f32,
+    pub lead_freq_hz: f32,
+    /// Roll, pitch, yaw amplitude (°/s).
+    pub amplitude: [u16; 3],
+    pub f_start_hz: f32,
+    pub f_end_hz: f32,
+    pub time_s: f32,
+}
+
+impl Default for ChirpConfig {
+    fn default() -> Self {
+        Self { lag_freq_hz: 3.0, lead_freq_hz: 30.0, amplitude: [230, 230, 180], f_start_hz: 0.2, f_end_hz: 600.0, time_s: 20.0 }
+    }
+}
+
+/// How a chirp segment was delimited.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChirpGate {
+    /// BOXCHIRP flight-mode flag and `debug[1]` agreed.
+    Both,
+    /// Only `debug[1]` (no slow frames decoded).
+    Debug,
+    /// Only the flight-mode flag (debug fields disabled).
+    FlightMode,
+}
+
+/// One activation of CHIRP mode on one axis.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChirpSegment {
+    pub axis: Axis,
+    /// Index range on the uniform grid (`i0..i1`).
+    pub i0: usize,
+    pub i1: usize,
+    pub t0_s: f32,
+    pub t1_s: f32,
+    #[serde(with = "nan_f32")]
+    pub f_start_hz: f32,
+    #[serde(with = "nan_f32")]
+    pub f_end_hz: f32,
+    pub source: ChirpGate,
+    /// Flown in ANGLE/HORIZON mode: the rate setpoint then contains the outer
+    /// attitude loop, so the sweep does not identify the rate loop alone.
+    #[serde(default)]
+    pub angle_mode: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ChirpInfo {
+    pub config: Option<ChirpConfig>,
+    pub segments: Vec<ChirpSegment>,
+    /// `debug[1..3]` look like DEBUG_CHIRP output regardless of the `debug_mode` id.
+    pub debug_is_chirp: bool,
+}
+
+impl ChirpInfo {
+    pub fn segments_for(&self, axis: Axis) -> impl Iterator<Item = &ChirpSegment> {
+        self.segments.iter().filter(move |s| s.axis == axis)
+    }
+}
+
+/// One phase-margin target of the frequency-response analysis.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FrTarget {
+    pub pm_deg: f32,
+    /// Where the open loop reaches −(180 − pm) degrees (Hz).
+    #[serde(with = "nan_f32")]
+    pub crossover_hz: f32,
+    /// Gain multiplier that would put the crossover there (1/|L|).
+    #[serde(with = "nan_f32")]
+    pub gain_to_target: f32,
+    /// Largest gain in [0.5, 2] keeping the predicted sensitivity peak ≤ 2.
+    #[serde(with = "nan_f32")]
+    pub gain_for_sens_limit: f32,
+}
+
+/// Scalar metrics of one axis' closed-loop frequency response.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FrMetrics {
+    #[serde(with = "nan_f32")]
+    pub bandwidth_hz: f32,
+    #[serde(with = "nan_f32")]
+    pub crossover_hz: f32,
+    #[serde(with = "nan_f32")]
+    pub phase_margin_deg: f32,
+    #[serde(with = "nan_f32")]
+    pub max_phase_margin_deg: f32,
+    #[serde(with = "nan_f32")]
+    pub resonant_peak_db: f32,
+    #[serde(with = "nan_f32")]
+    pub resonant_peak_hz: f32,
+    #[serde(with = "nan_f32")]
+    pub loop_delay_ms: f32,
+    #[serde(with = "nan_f32")]
+    pub low_freq_err_db: f32,
+    #[serde(with = "nan_f32")]
+    pub coherence_mean: f32,
+    /// First bin above 20 Hz where coherence drops below 0.5. Display only.
+    #[serde(with = "nan_f32")]
+    pub noise_floor_hz: f32,
+    #[serde(with = "nan_f32")]
+    pub sens_peak_db: f32,
+    #[serde(with = "nan_f32")]
+    pub sens_peak_hz: f32,
+    #[serde(with = "nan_f32")]
+    pub step_overshoot: f32,
+    #[serde(with = "nan_f32")]
+    pub step_rise_ms: f32,
+    #[serde(with = "nan_f32")]
+    pub step_settle_ms: f32,
+    pub targets: Vec<FrTarget>,
+}
+
+/// Closed-loop frequency response setpoint → gyro of one axis (Betaflight CHIRP).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FrequencyResponse {
+    pub axis: Axis,
+    /// Built from ANGLE/HORIZON-mode sweeps only (rate loop confounded by the attitude loop).
+    #[serde(default)]
+    pub angle_mode: bool,
+    pub f_hz: Vec<f32>,
+    #[serde(with = "nan_vec_f32")]
+    pub h_mag_db: Vec<f32>,
+    #[serde(with = "nan_vec_f32")]
+    pub h_phase_deg: Vec<f32>,
+    #[serde(with = "nan_vec_f32")]
+    pub coherence: Vec<f32>,
+    /// Open loop L = H/(1−H), NaN where f < 2 Hz or coherence < 0.5.
+    #[serde(with = "nan_vec_f32")]
+    pub l_mag_db: Vec<f32>,
+    #[serde(with = "nan_vec_f32")]
+    pub l_phase_deg: Vec<f32>,
+    /// Sensitivity S = 1 − H.
+    #[serde(with = "nan_vec_f32")]
+    pub s_mag_db: Vec<f32>,
+    /// Step response reconstructed from H (0..100 ms).
+    pub step_t_ms: Vec<f32>,
+    pub step: Vec<f32>,
+    pub fs_hz: f64,
+    pub segment_size: usize,
+    pub n_windows: usize,
+    pub n_sweeps: usize,
+    pub sweep_seconds: f32,
+    pub metrics: FrMetrics,
 }
 
 /// One burst of consecutive gyro samples (ArduPilot `ISBH` + its `ISBD` chunks).
@@ -282,6 +444,13 @@ pub struct LogQuality {
     /// Number of high-rate gyro batches available for spectra.
     #[serde(default)]
     pub gyro_hr_batches: usize,
+    /// Betaflight CHIRP: sweeps, Welch windows and mean coherence (5–100 Hz) per axis.
+    #[serde(default)]
+    pub chirp_sweeps_per_axis: [usize; 3],
+    #[serde(default)]
+    pub chirp_windows_per_axis: [usize; 3],
+    #[serde(default)]
+    pub chirp_coherence_per_axis: [f32; 3],
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -295,6 +464,9 @@ pub struct AnalysisBundle {
     /// Flight anomalies found in the log (desync, clipping, oscillation, …).
     #[serde(default)]
     pub anomalies: Vec<Anomaly>,
+    /// Closed-loop frequency responses from CHIRP sweeps (empty without chirp data).
+    #[serde(default)]
+    pub freq_resp: Vec<FrequencyResponse>,
 }
 
 // ---------------------------------------------------------------------------
@@ -392,6 +564,7 @@ pub enum EvidenceRef {
     Step { axis: Axis, overshoot: f32, latency_ms: f32 },
     Quality { field: String, value: f64 },
     Text { note: String },
+    FreqResp { axis: Axis, bandwidth_hz: f32, phase_margin_deg: f32, coherence: f32 },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -415,5 +588,17 @@ pub mod nan_f32 {
     }
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
         Ok(Option::<f32>::deserialize(d)?.unwrap_or(f32::NAN))
+    }
+}
+
+/// serde for `Vec<f32>` with NaN/inf elements: each non-finite value ⇄ `null`.
+pub mod nan_vec_f32 {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    pub fn serialize<S: Serializer>(v: &[f32], s: S) -> Result<S::Ok, S::Error> {
+        let opt: Vec<Option<f32>> = v.iter().map(|x| x.is_finite().then_some(*x)).collect();
+        opt.serialize(s)
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<f32>, D::Error> {
+        Ok(Vec::<Option<f32>>::deserialize(d)?.into_iter().map(|o| o.unwrap_or(f32::NAN)).collect())
     }
 }

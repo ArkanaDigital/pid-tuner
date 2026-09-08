@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import type { AnalysisBundle, ApplyPhase, ConnectKind, FcApplyResult, FcLogEntry, FcStatus, Flight, ImportResult, LogSummary, Mode, ParamValue, PidStrategy, PortInfo, Recommendation, SessionInfo, SessionSnapshot, SessionSummary, Step } from "./types";
+import type { AnalysisBundle, ApplyPhase, ConnectKind, Protocol, FcApplyResult, FcLogEntry, FcStatus, Flight, ImportResult, LogSummary, Mode, ParamValue, PidStrategy, PortInfo, Recommendation, SessionInfo, SessionSnapshot, SessionSummary, Step } from "./types";
 
 export async function pickLogFile(): Promise<string | null> {
   const r = await open({
@@ -44,6 +44,7 @@ export const api = {
   flightImport: (which: Flight, path: string, sessionIndex: number) =>
     invoke<ImportResult>("flight_import", { which, path, sessionIndex }),
   flightBundle: (which: Flight) => invoke<AnalysisBundle | null>("flight_bundle", { which }),
+  flightProtocol: (which: Flight) => invoke<Protocol>("flight_protocol", { which }),
   recsSet: (phase: ApplyPhase, id: string, accepted: boolean, newValue?: ParamValue) =>
     invoke<SessionSnapshot>("recs_set", { update: { phase, id, accepted, new_value: newValue ?? null } }),
   applyConfirm: (phase: ApplyPhase, method: string, notes?: string) =>

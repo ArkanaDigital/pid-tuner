@@ -85,5 +85,8 @@ pub fn log_quality(log: &FlightLog) -> LogQuality {
             matches!(log.firmware, Firmware::ArduCopter { .. }).then(|| [m[0], m[1], m[2]])
         },
         gyro_hr_batches: log.gyro_hr.iter().map(|t| t.batches.len()).sum(),
+        chirp_sweeps_per_axis: [0; 3],
+        chirp_windows_per_axis: [0; 3],
+        chirp_coherence_per_axis: [0.0; 3],
     }
 }

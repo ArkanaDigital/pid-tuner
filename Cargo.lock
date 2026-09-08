@@ -3722,6 +3722,8 @@ dependencies = [
  "ap-ingest",
  "chrono",
  "domain",
+ "log-ingest",
+ "recommend",
  "serde",
  "serde_json",
  "tempfile",

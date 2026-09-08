@@ -4,6 +4,8 @@
 //! handles session selection, unit scaling (`blackbox_high_resolution`),
 //! resampling to a uniform grid, and extraction of the tune from the header.
 
+pub mod chirp;
+pub mod debug_modes;
 pub mod headers;
 pub mod rates;
 pub mod tune;
@@ -100,7 +102,7 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
     // ---- column map ---------------------------------------------------------
     let filters = FilterSet {
         main: Filter::OnlyFields(WANTED.iter().copied().collect()),
-        slow: Filter::OnlyFields(std::iter::empty::<&str>().collect()),
+        slow: Filter::OnlyFields(["flightModeFlags"].into_iter().collect()),
         gps: Filter::OnlyFields(std::iter::empty::<&str>().collect()),
     };
     let mut parser = hdr.data_parser_with_filters(&filters);
@@ -128,7 +130,21 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
     let mut t_us: Vec<f64> = Vec::new();
     let mut vals: Vec<f32> = vec![0.0; cols.len()];
     let mut last_t: u64 = 0;
+    // BOXCHIRP flag per main frame (from the latest slow frame); None until a slow frame arrives.
+    let slow_has_flags = parser.slow_frame_def().iter().any(|f| f.name == "flightModeFlags");
+    let mut mode_flags_cur: Option<u32> = None;
+    let mut mode_flags: Vec<u32> = Vec::new();
+    let mut any_slow = false;
     while let Some(ev) = parser.next() {
+        if let ParserEvent::Slow(slow) = &ev {
+            if slow_has_flags {
+                if let Some(mask) = slow.get_raw(0) {
+                    mode_flags_cur = Some(mask);
+                    any_slow = true;
+                }
+            }
+            continue;
+        }
         if let ParserEvent::Main(main) = ev {
             let t = main.time_raw();
             if !t_us.is_empty() && t < last_t {
@@ -148,6 +164,7 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
             for c in cols.values_mut() {
                 c.data.push(vals[c.idx] * c.scale);
             }
+            mode_flags.push(mode_flags_cur.unwrap_or(0));
         }
     }
     if t_us.len() < 16 {
@@ -269,6 +286,17 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
             None => break,
         }
     }
+    // debug[k] on the grid (nearest sample: these are discrete axis/flag channels or raw counters)
+    let mut debug: Vec<Vec<f32>> = Vec::new();
+    for k in 0..8 {
+        match cols.get(&format!("debug[{k}]")) {
+            Some(c) => debug.push(dsp::resample::interp_nearest(&t_us, &c.data, &grid)),
+            None => break,
+        }
+    }
+    // flight-mode flags on the grid (nearest source frame; u32 → f32 would lose bits ≥ 24)
+    let flight_mode_flags: Vec<u32> = if any_slow { nearest_u32(&t_us, &mode_flags, &grid) } else { Vec::new() };
+
     let throttle = match rs("setpoint[3]") {
         Some(t) => t.iter().map(|v| (v / 1000.0).clamp(0.0, 1.0)).collect(),
         None => rs("rcCommand[3]")
@@ -281,6 +309,61 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
     let looptime_us: Option<f64> = raw_headers.get("looptime").and_then(|v| v.parse().ok());
     let pid_denom: f64 = raw_headers.get("pid_process_denom").and_then(|v| v.parse().ok()).unwrap_or(1.0);
     let loop_hz = looptime_us.map(|lt| 1e6 / (lt * pid_denom));
+
+    // ---- Betaflight CHIRP ------------------------------------------------------
+    let ver_mm = {
+        let mut it = version.split('.');
+        let a = it.next().and_then(|v| v.parse::<u32>().ok());
+        let b = it.next().and_then(|v| v.parse::<u32>().ok());
+        a.zip(b)
+    };
+    let debug_raw = hdr.debug_mode_raw();
+    if let Some(r) = debug_raw {
+        extra_headers.push(("bf.debug_mode_raw".into(), r.to_string()));
+    }
+    let debug_is_chirp = debug.len() >= 2 && chirp::looks_like_chirp(&debug[1], debug.get(2).map(|v| v.as_slice()));
+    let mut debug_mode = debug_mode;
+    if debug_mode == "UNKNOWN" {
+        if let (Some(r), Some(mm)) = (debug_raw, ver_mm) {
+            if let Some(name) = debug_modes::name_for(r, mm) {
+                debug_mode = name.to_string();
+            } else {
+                debug_mode = format!("UNKNOWN({r})");
+            }
+        }
+    }
+    if debug_is_chirp && debug_mode != "CHIRP" {
+        warnings.push(format!("debug fields look like DEBUG_CHIRP output although debug_mode reads {debug_mode}; treating the log as a chirp sweep."));
+        debug_mode = "CHIRP".to_string();
+    }
+    let chirp_cfg = chirp::config_from_headers(&raw_headers);
+    let chirp = if chirp_cfg.is_some() || debug_is_chirp {
+        // "H P interval:2" (or "1/2") → every 2nd PID loop is logged (Configurator frameIntervalPDenom)
+        let bb_denom: f64 = raw_headers
+            .get("P interval")
+            .and_then(|v| v.rsplit('/').next().and_then(|d| d.trim().parse::<f64>().ok()))
+            .or_else(|| raw_headers.get("frameIntervalPDenom").and_then(|v| v.parse().ok()))
+            .unwrap_or(1.0);
+        let chirp_fs = looptime_us.map(|lt| 1e6 / (lt * pid_denom * bb_denom.max(1.0)));
+        if let Some(cfs) = chirp_fs {
+            extra_headers.push(("bf.chirp_fs_hz".into(), format!("{cfs:.1}")));
+            if ((cfs - fs) / fs).abs() > 0.01 {
+                warnings.push(format!("header sample rate {cfs:.0} Hz differs from the measured {fs:.0} Hz; frequency-response bins use the measured rate."));
+            }
+        }
+        let seg = dsp::cross::segment_size_for(fs);
+        let segments = if debug.len() >= 2 {
+            chirp::detect_segments(&grid, Some(&debug[1]), debug.get(2).map(|v| v.as_slice()), (!flight_mode_flags.is_empty()).then_some(flight_mode_flags.as_slice()), seg)
+        } else {
+            if chirp_cfg.is_some() {
+                warnings.push("chirp_* settings present but debug fields are not logged (blackbox_disable_debug): CHIRP segments cannot be located.".into());
+            }
+            Vec::new()
+        };
+        Some(ChirpInfo { config: chirp_cfg, segments, debug_is_chirp })
+    } else {
+        None
+    };
 
     let mut hasher = blake3::Hasher::new();
     hasher.update(bytes);
@@ -310,6 +393,15 @@ pub fn ingest(bytes: &[u8], session: usize, opts: &IngestOpts) -> Result<FlightL
             msg_rates_hz: Default::default(),
         },
         tune_at_log: Tune::Bf(bf_tune),
+        debug,
+        chirp,
+        flight_mode_flags,
         gyro_hr: Vec::new(),
     })
+}
+
+/// Nearest-sample resampling for integer masks (see `dsp::resample::interp_nearest`).
+fn nearest_u32(t_src: &[f64], y: &[u32], t_dst: &[f32]) -> Vec<u32> {
+    let idx: Vec<f32> = (0..y.len()).map(|i| i as f32).collect();
+    dsp::resample::interp_nearest(t_src, &idx, t_dst).into_iter().map(|i| y[(i as usize).min(y.len().saturating_sub(1))]).collect()
 }
